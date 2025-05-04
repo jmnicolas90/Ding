@@ -51,14 +51,9 @@ object AlarmManagerUtil {
                 Log.d("Scheduling", "Set alarm (\"exact and allow while idle\") for " + DateTimeUtil.formatDateTime(date))
             }
 
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT -> {
+            else -> {
                 alarmManager.setExact(AlarmManager.RTC_WAKEUP, date.time, pendingIntent)
                 Log.d("Scheduling", "Set alarm (\"exact\") for " + DateTimeUtil.formatDateTime(date))
-            }
-
-            else -> {
-                alarmManager.set(AlarmManager.RTC_WAKEUP, date.time, pendingIntent)
-                Log.d("Scheduling", "Set alarm for " + DateTimeUtil.formatDateTime(date))
             }
         }
     }

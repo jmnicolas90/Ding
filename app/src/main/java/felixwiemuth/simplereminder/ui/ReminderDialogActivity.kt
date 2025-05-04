@@ -130,9 +130,8 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
 
         timePicker = findViewById(R.id.timePicker)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP // None of the customizations apply before Android 5.0
-            && (!Prefs.getBooleanPref(R.string.prefkey_reminder_dialog_timepicker_show_keyboard_button, true, this)
-                    || Prefs.getBooleanPref(R.string.prefkey_reminder_dialog_timepicker_customize_size, true, this))
+        if (!Prefs.getBooleanPref(R.string.prefkey_reminder_dialog_timepicker_show_keyboard_button, true, this)
+            || Prefs.getBooleanPref(R.string.prefkey_reminder_dialog_timepicker_customize_size, true, this)
         ) {
             adaptTimePickerLayout()
         }
@@ -443,11 +442,7 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
      */
     protected fun completeActivity() {
         setResult(RESULT_OK)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            finishAndRemoveTask() // Adding the reminder completes this task, the dialog should not stay under recent tasks.
-        } else {
-            finish() // This will leave the task under recent tasks, but it seems that one needs a workaround to prevent this: https://stackoverflow.com/questions/22166282/close-application-and-remove-from-recent-apps
-        }
+        finishAndRemoveTask() // Adding the reminder completes this task, the dialog should not stay under recent tasks.
     }
 
     /**
