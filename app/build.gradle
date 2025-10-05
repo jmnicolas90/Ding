@@ -20,6 +20,7 @@ plugins {
     id 'kotlin-android'
     id 'org.jetbrains.kotlin.plugin.serialization' version "$kotlin_version"
     id 'org.jetbrains.kotlin.android'
+    id 'io.kotest' version "$kotest_version"
 }
 
 android {
@@ -91,6 +92,14 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+
+    // Needed for Kotest with JUnit
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+        }
+    }
+
     namespace 'felixwiemuth.simplereminder'
 }
 
@@ -113,5 +122,8 @@ dependencies {
     //noinspection GradleDependency
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycle_version"
 
-    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.junit.jupiter:junit-jupiter:6.0.0'
+    testImplementation "io.kotest:kotest-framework-engine:$kotest_version"
+    testImplementation "io.kotest:kotest-assertions-core:$kotest_version"
+    testImplementation "io.kotest:kotest-runner-junit5:$kotest_version"
 }
