@@ -28,10 +28,26 @@
         <li>Use the <b>Quick Settings tile</b> (has to be first added by clicking the "edit" symbol in the Quick Settings menu)</li>
         <li>Click the "+" button in the reminders list</li>
     </ul>
+    <h4>Selecting time and date via widgets</h4>
     <p>Select a time using the clock widget and enter a message.
     Initially, the selected time refers to the next occurrence of the hour/minute within the next 24 hours. If this is on the next day, this is indicated with a blue "+1" next to the displayed date.
     To select a date more than 24 hours ahead, use the +/- buttons or click on the date.
         The "+x" next to the date indicates how many days the selected date is ahead. The date is displayed in orange to indicate that it is chosen manually.</p>
+    <h4>Specifying time via text</h4>
+    <p><i>This feature can be enabled in the settings.</i></p>
+    <p>As an alternative to using the clock widget, the reminder time can be specified via text by typing it at the beginning of the text field. The available formats are (where [x] represents an optional part):
+        <ul>
+            <li>h[h]:mm for setting the time (24 hour format)</li>
+            <li>+h[h][h]:mm for adding the given number of hours and minutes to the current time</li>
+            <li>+m[m][m] for adding the given number of minutes to the current time</li>
+        </ul>
+    </p>
+    <p></p>
+    <p>A space separates the time specification and reminder text.
+    <p>If the date is changed through an addition of hours and minutes, this is diplayed with a green "+x" next to the date.</p>
+    <p>It is possible to combine setting date and time with widgets and text. For example, one can select the date with buttons or the calendar, and independently specify the time via the "hh:mm" format. However, specifying the time with a relative format ("+...") will always reset any previous choices. Using the clock widget removes any text-based time specification, which is a useful way to correct the selected time.
+    </p>
+    <h4>Adding the reminder</h4>
     <p>To add the reminder, either click the "Add" button on the keyboard (usually a button on the bottom right, with a symbol or titled "Add") or click "Add" at the bottom of the dialog.</p>
     <p>After adding a reminder, the time until it is due is shown in hours and minutes (additional seconds are not displayed). If the reminder is at least 24 hours ahead, the number of (calendar) days and hours is shown (minutes are not shown and rounded towards the closest hour).</p>
 
