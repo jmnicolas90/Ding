@@ -19,6 +19,7 @@
 <changelog>
     <release version="0.9.15" versioncode="915100">
         <change>Text-based time input: Specify reminder time while typing the text (e.g. 12:30 or +1:30)! (Enable in settings)</change>
+        <change>Minimum supported Android version is now 5.0</change>
     </release>
     <release version="0.9.14" versioncode="914100">
         <change>Update to Android 14</change>
