@@ -345,7 +345,7 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
         val diff = diffSelectedDate
         var sDiff = ""
         if (diff != 0) {
-            sDiff += " (+$diffSelectedDate)"
+            sDiff += " (+$diff)"
         }
         val spBase = SpannableString(DateTimeUtil.formatDate(this, selectedDate.time))
         val spDiff = SpannableString(sDiff)
