@@ -1,5 +1,5 @@
 <!--
-  ~ Copyright (C) 2018-2024 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
+  ~ Copyright (C) 2018-2025 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
   ~
   ~ This program is free software: you can redistribute it and/or modify
   ~ it under the terms of the GNU General Public License as published by
@@ -125,6 +125,8 @@
     <string name="preference_disable_battery_optimization_summary_no_API31_exactAllowed">Battery optimization is enabled - on Android 12 this should not be a problem (as \"Alarms &amp; Reminders\" is allowed), but if you experience reminders not being shown on time, consider disabling it for SimpleReminder (click here).</string>
     <string name="preference_disable_battery_optimization_summary_no_API31_exactNotAllowed">NOTE: Battery optimization is enabled and \"Alarms &amp; Reminders\" is not allowed. Reminders might not be shown on time (or not at all after the device was idle for too long). Click to allow \"Alarms &amp; Reminders\".</string>
     <string name="preference_disable_battery_optimization_summary_no_API33">Battery optimization is enabled - from Android 13 on this should not be a problem, but if you experience reminders not being shown on time, consider disabling it for SimpleReminder (click here).</string>
+    <string name="preference_category_experimental">Experimental</string>
+    <string name="preference_text_based_time_enabled">Enable text-based time input</string>
     <string name="preference_category_other">Other</string>
     <string name="preference_reset_dont_show_again">Reset \"Don\'t show again\" choices</string>
     <string name="toast_reset_dont_show_again">\"Don\'t show again\" choices have been reset.</string>

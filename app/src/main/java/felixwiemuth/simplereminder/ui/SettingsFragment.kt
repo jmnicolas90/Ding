@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2024 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
+ * Copyright (C) 2018-2025 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,13 +79,6 @@ class SettingsFragment : PreferenceFragmentCompat(), OnSharedPreferenceChangeLis
                     Toast.makeText(context, R.string.preference_nagging_repeat_interval_format_error, Toast.LENGTH_LONG).show()
                     false
                 }
-        }
-
-        // Reminder dialog customizations only apply for Android >= 5.0
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-            findPreference<PreferenceCategory>(getString(R.string.prefkey_cat_ui))?.apply {
-                parent?.removePreference(this)
-            }
         }
 
         // Priority/Sound settings only work for Android < 8

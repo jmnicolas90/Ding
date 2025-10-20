@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2024 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
+ * Copyright (C) 2018-2025 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -66,9 +66,8 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
         val reminderId = intent.getIntExtra(EXTRA_REMINDER_ID, -1)
         try {
             val reminder = getReminder(this, reminderId)
-            nameTextView.setText(reminder.text)
-            // Move cursor to end of text
-            nameTextView.setSelection(nameTextView.length())
+            setTextMovingCursorToEnd(reminder.text)
+
             // For scheduled reminders, set the selected time to the due date, otherwise leave it at the current time
             if (reminder.status == Reminder.Status.SCHEDULED) {
                 setSelectedDateTimeAndSelectionMode(reminder.calendar)

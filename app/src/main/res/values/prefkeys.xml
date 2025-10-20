@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  ~ Copyright (C) 2018-2024 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
+  ~ Copyright (C) 2018-2025 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
   ~
   ~ This program is free software: you can redistribute it and/or modify
   ~ it under the terms of the GNU General Public License as published by
@@ -38,6 +38,8 @@
     <string name="prefkey_nagging_repeat_interval">nagging_repeat_interval</string>
     <string name="prefkey_run_on_boot">run_on_boot</string>
     <string name="prefkey_disable_battery_optimization">disable_battery_optimization</string>
+    <string name="prefkey_cat_experimental">cat_experimental</string>
+    <string name="prefkey_text_based_time_enabled">text_based_time_enabled</string>
     <string name="prefkey_cat_other">cat_other</string>
     <string name="prefkey_reset_dont_show_again">reset_dont_show_again</string>
 </resources>

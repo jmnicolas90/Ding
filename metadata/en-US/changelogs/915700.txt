@@ -1,0 +1,2 @@
+• Text-based time input: Specify reminder time while typing the text (e.g. 12:30 or +1:30)! (Enable in settings)
+• Minimum supported Android version is now 5.0

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2024 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
+ * Copyright (C) 2018-2025 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,14 +51,9 @@ object AlarmManagerUtil {
                 Log.d("Scheduling", "Set alarm (\"exact and allow while idle\") for " + DateTimeUtil.formatDateTime(date))
             }
 
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT -> {
+            else -> {
                 alarmManager.setExact(AlarmManager.RTC_WAKEUP, date.time, pendingIntent)
                 Log.d("Scheduling", "Set alarm (\"exact\") for " + DateTimeUtil.formatDateTime(date))
-            }
-
-            else -> {
-                alarmManager.set(AlarmManager.RTC_WAKEUP, date.time, pendingIntent)
-                Log.d("Scheduling", "Set alarm for " + DateTimeUtil.formatDateTime(date))
             }
         }
     }
