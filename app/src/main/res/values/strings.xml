@@ -16,17 +16,17 @@
   -->
 
 <resources>
-    <string name="app_name" translatable="false">SimpleReminder</string>
+    <string name="app_name" translatable="false">Ding</string>
     <string name="dialog_welcome_title">Welcome</string>
-    <string name="welcome_message">Welcome to SimpleReminder! This is an early version and your feedback is needed (see \"About\").\n\nPlease test whether reminders work reliably on your device and report it if not.\n\nSimpleReminder is free software (licensed under the GNU General Public License) and comes without any warranty.</string>
-    <string name="welcome_message_update">Welcome to an updated version of SimpleReminder!\n\nPlease test whether reminders work reliably on your device and report it if not.\n\nThe app is continually being developed and your feedback is needed - see \"About\" for more information.</string>
+    <string name="welcome_message">Welcome to Ding! This is an early version and your feedback is needed (see \"About\").\n\nPlease test whether reminders work reliably on your device and report it if not.\n\nDing is free software (licensed under the GNU General Public License) and comes without any warranty.</string>
+    <string name="welcome_message_update">Welcome to an updated version of Ding!\n\nPlease test whether reminders work reliably on your device and report it if not.\n\nThe app is continually being developed and your feedback is needed - see \"About\" for more information.</string>
     <string name="toast_info_add_reminder_dialog">Tip: There is a launcher icon to reach this dialog!</string>
     <string name="dialog_startup_grant_permission">Grant permission</string>
     <string name="dialog_startup_later">Later</string>
     <string name="dialog_startup_dont_show_again">Don\'t show again</string>
     <string name="dialog_startup_disable_battery_optimization_title">Battery Optimization</string>
-    <string name="dialog_startup_disable_battery_optimization_message">If reminders are not shown on time, disabling battery optimization might help.\n\nSimpleReminder still only becomes active when a scheduled reminder is due.</string>
-    <string name="dialog_startup_disable_battery_optimization_turn_off">Turn off for SimpleReminder</string>
+    <string name="dialog_startup_disable_battery_optimization_message">If reminders are not shown on time, disabling battery optimization might help.\n\nDing still only becomes active when a scheduled reminder is due.</string>
+    <string name="dialog_startup_disable_battery_optimization_turn_off">Turn off for Ding</string>
     <string name="dialog_startup_schedule_exact_title">Scheduling permission</string>
     <string name="dialog_startup_schedule_exact_message">You have to grant permission for the app to be able to show reminders on time.</string>
     <string name="dialog_startup_show_notifications_title">Notifications</string>
@@ -115,11 +115,11 @@
     <string name="preference_run_on_boot_summary_off">After a restart of the device, reminders will not be shown until opening the app.</string>
     <string name="preference_run_on_boot_summary_on">Continue showing reminders after a restart of the device.</string>
     <string name="preference_disable_battery_optimization">Battery optimization</string>
-    <string name="preference_disable_battery_optimization_summary_yes">Battery optimization is disabled for SimpleReminder - this should not be necessary on Android 12 when \"Alarms &amp; Reminders\" is allowed, but if reminders are otherwise not shown on time, this might help. Click to open settings.</string>
-    <string name="preference_disable_battery_optimization_summary_yes_API33">Battery optimization is disabled for SimpleReminder - this should not be necessary anymore from Android 13 on, but if reminders are otherwise not shown on time, this might help. Click to open settings.</string>
-    <string name="preference_disable_battery_optimization_summary_no_exactAllowed">Battery optimization is enabled - on Android 12 this should not be a problem (as \"Alarms &amp; Reminders\" is allowed), but if you experience reminders not being shown on time, consider disabling it for SimpleReminder (click here).</string>
+    <string name="preference_disable_battery_optimization_summary_yes">Battery optimization is disabled for Ding - this should not be necessary on Android 12 when \"Alarms &amp; Reminders\" is allowed, but if reminders are otherwise not shown on time, this might help. Click to open settings.</string>
+    <string name="preference_disable_battery_optimization_summary_yes_API33">Battery optimization is disabled for Ding - this should not be necessary anymore from Android 13 on, but if reminders are otherwise not shown on time, this might help. Click to open settings.</string>
+    <string name="preference_disable_battery_optimization_summary_no_exactAllowed">Battery optimization is enabled - on Android 12 this should not be a problem (as \"Alarms &amp; Reminders\" is allowed), but if you experience reminders not being shown on time, consider disabling it for Ding (click here).</string>
     <string name="preference_disable_battery_optimization_summary_no_exactNotAllowed">NOTE: Battery optimization is enabled and \"Alarms &amp; Reminders\" is not allowed. Reminders might not be shown on time (or not at all after the device was idle for too long). Click to allow \"Alarms &amp; Reminders\".</string>
-    <string name="preference_disable_battery_optimization_summary_no_API33">Battery optimization is enabled - from Android 13 on this should not be a problem, but if you experience reminders not being shown on time, consider disabling it for SimpleReminder (click here).</string>
+    <string name="preference_disable_battery_optimization_summary_no_API33">Battery optimization is enabled - from Android 13 on this should not be a problem, but if you experience reminders not being shown on time, consider disabling it for Ding (click here).</string>
     <string name="preference_category_experimental">Experimental</string>
     <string name="preference_text_based_time_enabled">Enable text-based time input</string>
     <string name="preference_category_other">Other</string>
@@ -130,7 +130,7 @@
     <string name="error_msg_reminder_not_found">Error: Reminder not found</string>
     <string name="acra_title">Crash report</string>
     <!--<string name="acra_email">Enter your email for further enquiries</string>-->
-    <string name="acra_prompt">Sorry, SimpleReminder has crashed. Please send this report to the developer.</string>
+    <string name="acra_prompt">Sorry, Ding has crashed. Please send this report to the developer.</string>
     <string name="acra_comment_prompt">You can add a comment describing the situation of the crash.</string>
 
     <string name="tmp_templates_fragment_coming_soon">Coming soon: Save frequent reminders and reschedule them even more quickly!</string>

@@ -38,7 +38,7 @@
             android:name=".ui.reminderslist.RemindersListActivity"
             android:exported="true"
             android:label="@string/title_activity_reminders_list"
-            android:taskAffinity="felixwiemuth.simplereminder.main"
+            android:taskAffinity="app.ding.main"
             android:theme="@style/AppTheme.NoActionBar">
             <intent-filter>
                 <category android:name="android.intent.category.DEFAULT" />
@@ -56,13 +56,13 @@
         </activity>
         <activity
             android:name=".ui.SettingsActivity"
-            android:taskAffinity="felixwiemuth.simplereminder.main" />
+            android:taskAffinity="app.ding.main" />
         <activity
             android:name=".ui.AddReminderDialogActivity"
             android:exported="true"
             android:label="@string/add_reminder_title"
             android:launchMode="singleTask"
-            android:taskAffinity="felixwiemuth.simplereminder.addreminder"
+            android:taskAffinity="app.ding.addreminder"
             android:theme="@style/AppTheme.DialogActivity"
             android:windowSoftInputMode="stateVisible">
             <intent-filter>
@@ -79,7 +79,7 @@
             android:name=".ui.EditReminderDialogActivity"
             android:label="@string/edit_reminder_title"
             android:launchMode="singleTask"
-            android:taskAffinity="felixwiemuth.simplereminder.editreminder"
+            android:taskAffinity="app.ding.editreminder"
             android:theme="@style/AppTheme.DialogActivity"
             android:windowSoftInputMode="stateVisible" />
 

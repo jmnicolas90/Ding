@@ -45,7 +45,7 @@
             app:iconSpaceReserved="false" />
         <Preference
             android:title="@string/preference_notification_time_display"
-            app:fragment="felixwiemuth.simplereminder.ui.NotificationSettingsFragment"
+            app:fragment="app.ding.ui.NotificationSettingsFragment"
             app:iconSpaceReserved="false" />
     </PreferenceCategory>
 
@@ -56,7 +56,7 @@
         app:iconSpaceReserved="false">
         <Preference
             android:title="@string/preference_category_reminder_dialog"
-            app:fragment="felixwiemuth.simplereminder.ui.UISettingsFragment"
+            app:fragment="app.ding.ui.UISettingsFragment"
             app:iconSpaceReserved="false" />
         <SwitchPreferenceCompat
             android:key="@string/prefkey_text_based_time_enabled"

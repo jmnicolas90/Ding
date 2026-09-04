@@ -45,37 +45,41 @@ android {
     }
 
     defaultConfig {
-        // Release branch specific variables
-        applicationId "felixwiemuth.simplereminder.dev"
-        def releaseChannel = 'dev'
-        def versionCodeReleaseChannel = 1
+        // One build identity, for every build type. Upstream had two, chosen by
+        // which branch was building; Ding has one branch, so there is nothing
+        // left to choose between.
+        applicationId "app.ding"
 
-        // Version variables
+        // The version, as three numbers plus a sub-version for an extra release
+        // that does not move the point version.
         def versionCodeMajor = 0
         def versionCodeMinor = 9
         def versionCodePoint = 15
-
-        // Sub version for release channel (only used on some release channels)
         def versionCodeSub = 0
 
+        // The version code packs those four numbers into one integer, each in a
+        // fixed field of decimal digits: sub gets 2 digits, point 2, minor 3,
+        // major 2. Upstream reserved one more digit, between sub and point, to
+        // mark the release channel so that a dev build and a production build of
+        // the same version got different codes. That channel is gone, so the
+        // digit is gone too and the fields above it each moved down one decade.
+        //     10^9 is the reserve digit, which can only be 0 or 1 with full
+        //     range below. Max value allowed by Google Play: 2100000000.
         versionCode = new Integer(
                 10**0 * versionCodeSub // 2 digits
-              + 10**2 * versionCodeReleaseChannel // 1 digit
-              + 10**3 * versionCodePoint // 2 digits
-              + 10**5 * versionCodeMinor // 3 digits
-              + 10**8 * versionCodeMajor // 2 digits
-        //      10^10 is the reserve digit which can only be 0 or 1 with full range below
-        //      Max value allowed by Google Play: 2100000000
+              + 10**2 * versionCodePoint // 2 digits
+              + 10**4 * versionCodeMinor // 3 digits
+              + 10**7 * versionCodeMajor // 2 digits
         )
 
         def gitDescription = "${gitDescribe()}"
 
-        versionName = versionCodeMajor + "." + versionCodeMinor + "." + versionCodePoint + "-" + releaseChannel + "-" + gitDescription
+        versionName = versionCodeMajor + "." + versionCodeMinor + "." + versionCodePoint + "-" + gitDescription
 
         minSdkVersion 31
         targetSdkVersion 34
 
-        archivesBaseName = "SimpleReminder_" + versionName
+        archivesBaseName = "Ding_" + versionName
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
@@ -109,7 +113,7 @@ android {
         warningsAsErrors false
     }
 
-    namespace 'felixwiemuth.simplereminder'
+    namespace 'app.ding'
 }
 
 dependencies {

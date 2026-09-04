@@ -21,7 +21,7 @@
 #-renamesourcefileattribute SourceFile
 
 # Keep all classes from this project
--keep class felixwiemuth.simplereminder.** { *; }
+-keep class app.ding.** { *; }
 
 # ========== kotlinx.serialization, from https://github.com/Kotlin/kotlinx.serialization ==========
 
