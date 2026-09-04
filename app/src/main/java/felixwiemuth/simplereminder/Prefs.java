@@ -26,12 +26,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.os.Build;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.widget.Toast;
 
-import androidx.annotation.RequiresApi;
 import androidx.annotation.StringRes;
 import androidx.core.app.ActivityCompat;
 import androidx.preference.PreferenceManager;
@@ -193,20 +191,17 @@ public class Prefs {
      * @param context
      * @return
      */
-    @RequiresApi(api = Build.VERSION_CODES.M)
     public static boolean isIgnoringBatteryOptimization(Context context) {
         PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         return pm.isIgnoringBatteryOptimizations(context.getPackageName());
     }
 
-    @RequiresApi(23)
     public static Intent getIntentDisableBatteryOptimization(Context context) {
         @SuppressLint("BatteryLife") Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
         intent.setData(Uri.parse("package:" + context.getPackageName()));
         return intent;
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.S)
     public static Intent getIntentScheduleExactSettings(Context context) {
         @SuppressLint("BatteryLife") Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
         intent.setData(Uri.parse("package:" + context.getPackageName()));

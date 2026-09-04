@@ -20,20 +20,27 @@ package felixwiemuth.simplereminder.util
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
-import android.os.Build
 import android.util.Log
 import java.util.Date
 
 object AlarmManagerUtil {
     /**
-     * Schedule an exact alarm (and normal alarm if not possible). Delegates to the correct method depending on SDK version.
+     * Whether the app may currently schedule exact alarms. On Android 12 and 12L the user can
+     * revoke this; from Android 13 on it is granted permanently via `USE_EXACT_ALARM`.
+     */
+    fun canScheduleExact(context: Context): Boolean =
+        (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).canScheduleExactAlarms()
+
+    /**
+     * Schedule an exact alarm, falling back to a normal alarm if the permission to schedule exact
+     * alarms is not granted.
      */
     fun scheduleExact(context: Context, date: Date, pendingIntent: PendingIntent) {
         val alarmManager =
             context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        // From API 31, need to check for permission, otherwise get SecurityException
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+        // Need to check for permission, otherwise get SecurityException
+        if (!alarmManager.canScheduleExactAlarms()) {
             Log.w("Scheduling", "Missing permission to schedule exact alarm")
             // Falling back to less precise alarm
             alarmManager.set(AlarmManager.RTC_WAKEUP, date.time, pendingIntent)
@@ -41,20 +48,11 @@ object AlarmManagerUtil {
             return
         }
 
-        when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    date.time,
-                    pendingIntent
-                )
-                Log.d("Scheduling", "Set alarm (\"exact and allow while idle\") for " + DateTimeUtil.formatDateTime(date))
-            }
-
-            else -> {
-                alarmManager.setExact(AlarmManager.RTC_WAKEUP, date.time, pendingIntent)
-                Log.d("Scheduling", "Set alarm (\"exact\") for " + DateTimeUtil.formatDateTime(date))
-            }
-        }
+        alarmManager.setExactAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            date.time,
+            pendingIntent
+        )
+        Log.d("Scheduling", "Set alarm (\"exact and allow while idle\") for " + DateTimeUtil.formatDateTime(date))
     }
 }

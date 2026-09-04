@@ -24,7 +24,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -58,14 +57,6 @@ object ReminderManager {
     private fun getRequestCodeEditReminderDialogActivityPendingIntent(reminderID: Int): Int {
         return OFFSET_REQUEST_CODE_ADD_REMINDER_DIALOG_ACTIVITY_PENDING_INTENT + reminderID
     }
-
-    private var DEFAULT_SOUND: Uri? = null
-        get() {
-            if (field == null) {
-                field = Uri.parse("content://settings/system/notification_sound")
-            }
-            return field
-        }
 
     /**
      * Describes an action to be performed on a reminder. Provides [PendingIntent]s to perform
@@ -156,15 +147,11 @@ object ReminderManager {
             val intent = Intent()
             intent.setClass(context.applicationContext, ReminderBroadcastReceiver::class.java)
             extras?.let { intent.putExtras(it) }
-            val flags =
-                /* Using a mutable pending intent might be necessary because of scheduling with AlarmManager and the use in notifications
-                   (see https://developer.android.com/guide/components/intents-filters#DeclareMutabilityPendingIntent).
-                   As we use an explicit intent, this should be fine security-wise.
-                 */
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                    PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE
-                else
-                    PendingIntent.FLAG_CANCEL_CURRENT
+            /* Using a mutable pending intent might be necessary because of scheduling with AlarmManager and the use in notifications
+               (see https://developer.android.com/guide/components/intents-filters#DeclareMutabilityPendingIntent).
+               As we use an explicit intent, this should be fine security-wise.
+             */
+            val flags = PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE
             return PendingIntent.getBroadcast(
                 context,
                 getRequestCode(),
@@ -290,7 +277,7 @@ object ReminderManager {
                (see https://developer.android.com/guide/components/intents-filters#DeclareMutabilityPendingIntent).
                As we use an explicit intent, this should be fine security-wise.
              */
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+            PendingIntent.FLAG_MUTABLE
         )
         val builder = NotificationCompat.Builder(
             context,
@@ -307,21 +294,6 @@ object ReminderManager {
             .setContentIntent(editReminderPendingIntent)
             .setDeleteIntent(markDoneIntent)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            // Applies for Android < 8
-            .setPriority(
-                Integer.valueOf(
-                    Prefs.getStringPref(
-                        R.string.prefkey_priority,
-                        "0",
-                        context
-                    )
-                )
-            )
-
-        // Applies for Android < 8
-        if (Prefs.getBooleanPref(R.string.prefkey_enable_sound, false, context)) {
-            builder.setSound(DEFAULT_SOUND) // Set default notification sound
-        }
 
         val notificationManager = NotificationManagerCompat.from(context)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU // Permission was added in API 33
@@ -462,14 +434,12 @@ object ReminderManager {
 
     @JvmStatic
     fun createNotificationChannel(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name: CharSequence = context.getString(R.string.channel_name)
-            val description = context.getString(R.string.channel_description)
-            val importance = NotificationManager.IMPORTANCE_HIGH
-            val channel = NotificationChannel(NOTIFICATION_CHANNEL_REMINDER, name, importance)
-            channel.description = description
-            val notificationManager = context.getSystemService(NotificationManager::class.java)
-            notificationManager.createNotificationChannel(channel)
-        }
+        val name: CharSequence = context.getString(R.string.channel_name)
+        val description = context.getString(R.string.channel_description)
+        val importance = NotificationManager.IMPORTANCE_HIGH
+        val channel = NotificationChannel(NOTIFICATION_CHANNEL_REMINDER, name, importance)
+        channel.description = description
+        val notificationManager = context.getSystemService(NotificationManager::class.java)
+        notificationManager.createNotificationChannel(channel)
     }
 }
