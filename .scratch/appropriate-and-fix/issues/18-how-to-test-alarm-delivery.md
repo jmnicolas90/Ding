@@ -6,6 +6,8 @@ Blocked by: 09
 
 ## Question
 
+**Ticket 09 is resolved.** Implement against `docs/reminder-state-machine.md` (transition table, effects, invariants, and the numbered test list); use the vocabulary in `CONTEXT.md`.
+
 Review finding: **"Core reminder state and persistence paths have no automated tests"** (medium). The 65 existing tests cover date arithmetic and `TimeMatcher` — nothing touches storage, ID allocation, failed commits, malformed JSON, state transitions, cold-start delivery, notification permissions, edit flows, or boot reconciliation. Those are the highest-risk parts of the app.
 
 Tickets 10 through 13 each add tests for their own change. This ticket decides the **approach** for the class of test none of them can write alone: does the alarm actually fire, and does the notification actually appear?

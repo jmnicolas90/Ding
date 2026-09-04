@@ -6,6 +6,8 @@ Blocked by: 09
 
 ## Question
 
+**Ticket 09 is resolved.** Implement against `docs/reminder-state-machine.md` (transition table, effects, invariants, and the numbered test list); use the vocabulary in `CONTEXT.md`.
+
 Review finding: **"Invalid stored JSON can put the app in a startup crash loop"** (medium), `ReminderStorage.kt:86-88`.
 
 Reminder JSON is decoded with no handling for `SerializationException`, an incompatible schema, a wrong preference type, or a null value. `Main.onCreate()` reads it on **every process start**, so a single bad value stops every component of the app from starting — including the alarm receiver. The app becomes unlaunchable and unfixable from inside.

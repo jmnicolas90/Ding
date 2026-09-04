@@ -6,6 +6,8 @@ Blocked by: 09
 
 ## Question
 
+**Ticket 09 is resolved.** Implement against `docs/reminder-state-machine.md` (transition table, effects, invariants, and the numbered test list); use the vocabulary in `CONTEXT.md`.
+
 Review finding: **"Failed persistence is reported as success"** (high), `ReminderStorage.kt:68-74`.
 
 `SharedPreferences.Editor.commit()` returns `false` when the durable write fails; the result is discarded. The method broadcasts a successful change and returns the reminder anyway, so callers schedule an alarm for a reminder that is not in storage. On process death the reminder is gone — and the alarm that outlives it later crashes in `ReminderAction.run`, whose first line is `ReminderStorage.getReminder(context, reminderId)`.
