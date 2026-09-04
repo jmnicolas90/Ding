@@ -81,3 +81,7 @@ Not done here, and not in this ticket's gift: the GitHub repository rename and t
 directory. The orchestrator renames the repository to `jmnicolas90/Ding` after this merges. No
 tracked file referenced the `ForkedReminder` URL, so there was nothing to update; the git remote
 was left alone.
+
+## Review findings (2026-09-05)
+
+- (medium) The debug install was never exercised because no device was attached — **verified by the orchestrator**: installed on the `bench-pixel6-aosp` emulator (API 36, pure AOSP), `pm list packages` shows `app.ding` with versionCode 91500, the launcher resolves to `app.ding/.ui.reminderslist.RemindersListActivity`, and both that activity and `AddReminderDialogActivity` start with status ok and no `AndroidRuntime` errors in logcat.
