@@ -57,6 +57,7 @@ These are the answers that fixed the destination. They are not tickets and were 
 - [Stop publishing a personal email address in commit metadata](issues/01-git-identity-no-reply-address.md) — repo-local `user.email` set to `68194446+jmnicolas90@users.noreply.github.com`, real name kept; verified in an actual commit object. Done before the first commit, so no history rewrite. Commits are now safe to push publicly.
 - **Collapsed to a single trunk, `main`.** Upstream ran git-flow, and the two branches were not merely integration versus release: they carried different build identities (`develop` = `felixwiemuth.simplereminder.dev`, `main` = upstream's production `felixwiemuth.simplereminder`), with the release channel encoded in the branch. Merging took `main`'s side silently; the fork's own `.dev` identity was restored on top. The `v0.9.x` tags stay in the trunk's ancestry, which is why `main` was kept rather than `develop`.
 - [Raise minSdk to 31](issues/02-raise-minsdk-to-31.md) — `minSdkVersion 31`, ~190 lines of pre-31 branches deleted, including the notification priority/sound settings that Android 8 had already made inert. Lint is now clean, so the `NewApi` finding on `QuickTileService` is closed. `targetSdk` untouched (ticket 17).
+- [Build the executable quality gate](issues/03-executable-quality-gate.md) — `scripts/check.sh` (G0 preflight, lint, unit tests, Google guard, debug APK, release APK) and a matching GitHub Actions workflow, both green. The GrapheneOS constraint is now enforced by `checkNoGoogleDependencies`, which walks every variant runtime classpath and fails on `com.google.android.gms`, `com.google.firebase` or a `play-services` module — matched on group coordinates, so `com.google.android.material` passes. Lint fails on errors, not on the 23 remaining warnings.
 
 ## Not yet specified
 
@@ -65,6 +66,7 @@ These are the answers that fixed the destination. They are not tickets and were 
 - **Moving storage work off the main thread.** The review's performance finding. Depends entirely on what boundary ticket 09 draws — the fix could be `goAsync()`, a coroutine scope, or nothing if the boundary makes writes cheap.
 - **Retention for completed reminders.** Done reminders accumulate forever, which is what makes the full-store rewrite grow without bound. Part cleanup, part product decision — needs the feature map's input.
 - **Regenerating screenshots and store metadata** under the new name. Trivial mechanically, but nobody has decided what the app should *look* like yet.
+- **Resource shrinking on the shipping APK.** `shrinkResources` is set on the debug build type and not on release, so the APK users install is never resource-shrunk. Upstream turned minification on in debug to stay under the 64K dex limit and resource shrinking appears to have come along for the ride. Either release should shrink too, or debug should stop — but which way is a size-versus-build-time call nobody has made.
 - **Translations.** Upstream shipped English and a German title. Unclear whether the fork keeps, drops, or expands that.
 
 ## Out of scope

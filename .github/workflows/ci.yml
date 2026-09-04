@@ -3,9 +3,15 @@ name: CI
 on:
   push:
     # Every branch, because ticket branches have to be green before they merge
-    # back to main — but not tags: a release tag points at a commit the gate has
-    # already passed on, and re-running it there proves nothing.
-    tags-ignore: ["**"]
+    # back to main. Naming branches also excludes tags, which is what we want —
+    # a release tag points at a commit the gate has already passed on.
+    #
+    # It has to be spelled this way round. A bare `tags-ignore: ["**"]` looks
+    # equivalent and is not: when only a tag filter is given, GitHub runs the
+    # workflow for no branch push at all. That mistake was made here and caught
+    # only because the next push produced no CI run whatsoever — a gate that
+    # silently stops running is worse than one that fails.
+    branches: ["**"]
   pull_request:
 
 # A branch that has a PR open fires both triggers. Rather than drop one and lose
