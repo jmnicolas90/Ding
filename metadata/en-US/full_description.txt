@@ -16,4 +16,4 @@ A notification with your message will pop up at the time selected!
 • <b>Reschedule</b> or <b>edit</b> a reminder by clicking on the notification or its entry in the list
 • <b>Nagging reminders</b>: repeat notifications in a given interval until dismissed
 
-See the website for many more planned features!
+Ding is free software (GPL-3.0-or-later) and a fork of SimpleReminder by Felix Wiemuth. It needs no Google Play Services and runs on GrapheneOS and plain AOSP.

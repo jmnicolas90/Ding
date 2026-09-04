@@ -1,89 +1,85 @@
-# Simple Reminder
+# Ding
 
-## About
-Do you know the feeling when something crosses your mind you certainly want to remember to do later? An alarm is the best solution you know of? Then you haven't come across SimpleReminder yet!
+An Android reminder app. Something crosses your mind, you write it down in a
+few seconds, and it comes back to you at the time you set.
 
-This app lets you set up a reminder in very few steps:
+1. Tap "Add Reminder" on the home screen or use the Quick Settings tile
+2. Enter a message and pick a time — absolute (`12:30`) or relative (`+1:30`)
+3. Tap OK
 
-1. Click "Add Reminder" on your home screen or use the Quick Settings Tile
-2. Select a time, enter a message
-3. Click OK
+At the due time a notification arrives, and if you asked for a nagging reminder
+it repeats at a fixed interval until you deal with it. The whole value of the
+app is firing reliably in the background, so that is what it is built and
+tested around.
 
-The reminder is saved and will pop up at the time set.
-
-## Project status
-SimpleReminder is currently under development, and new features are added continuously. Your [feedback](#feedback) is welcome!
-
+Screenshots: to be regenerated under the Ding name.
 
 ## Features
-- Specific launcher icon and Quick Settings tile to directly reach the "Add Reminder" dialog
-- Easily add a reminder within the next 24 hours by using a clock widget
-- Alternatively, type the time: absolute (12:30) or relative (+1:30)
-- Choose a custom date for a reminder with +/- buttons or in a calendar
-- When a reminder is due, a notification is shown (customizable via notification settings)
-- Clear breakdown on due, upcoming and past reminders
-- **Reschedule** or **edit** a reminder by clicking on the notification or its entry in the list
-- **Nagging reminders**: repeat notifications in a given interval until dismissed
 
+- A launcher icon and a Quick Settings tile that go straight to "Add Reminder"
+- Set a time within the next 24 hours on a clock widget, or type it
+- Pick a date with +/- buttons or from a calendar
+- Due, upcoming and past reminders in one list
+- Reschedule or edit a reminder from its notification or its list entry
+- Nagging reminders: the notification repeats at a set interval until dealt with
 
-## Planned features
-See the [issues](https://github.com/jmnicolas90/Ding/issues) for more detailed descriptions of some planned features.
-You are welcome to comment and make suggestions − early feedback can help improve a feature before changes become more difficult!
+## A fork of SimpleReminder
 
-- Create **templates** to quickly add frequent reminders
-- Access templates with specific **launcher icons**
-- Individual notification settings (including sound, vibration, LED) for each reminder (multiple notification channels on Android 8+)
-- Recurring reminders: repeat every day/week/month/year
-- Auto complete reminder text based on previous reminders / suggestions of templates
-- Add **media** to reminders: take a photo, record a sound, ... − it will be shown in the notification!
-- Sharing of reminder content
-- Add reminders by selecting text anywhere (context menu) or via sharing a text, photo, ...
-- Automatic deletion of old reminders after a customizable time
-  - Option to delete reminders directly on dismiss
-- Support of different languages (with choice), including local date formats
+Ding is a hard fork of
+[SimpleReminder by Felix Wiemuth](https://github.com/felixwiemuth/SimpleReminder)
+(the original project), taken at commit `d34bf2f`. Development upstream had
+stopped, and the maintainer of this fork wanted to keep the app alive and
+extend it. Upstream is not merged back in; useful changes are picked up by
+hand.
 
-And much more!
+## Requirements
 
+Android 12 or later (`minSdk 31`).
+
+Ding is Google-free: no Play Services, no Firebase, nothing from Google Mobile
+Services in the dependency graph. It runs on GrapheneOS and on plain AOSP. This
+is checked on every build rather than merely promised — the quality gate walks
+the full runtime classpath of every variant and fails if such a dependency
+appears.
+
+## Building
+
+You need the Android SDK with the `platforms;android-36` package and JDK 21.
+
+```
+./gradlew assembleDebug
+```
+
+To run everything the project requires to be green — lint, unit tests, the
+Google-dependency check, and both the debug and release APKs:
+
+```
+scripts/check.sh
+```
+
+## Getting it
+
+Releases are published on
+[GitHub](https://github.com/jmnicolas90/Ding/releases). Ding is not on F-Droid
+and not on the Play Store.
 
 ## Feedback
 
-[GitHub issues](https://github.com/jmnicolas90/Ding/issues) are the only contact channel for this project.
+[GitHub issues on this repository](https://github.com/jmnicolas90/Ding/issues)
+are the only contact channel. If you found a problem, please
+[open a bug report](https://github.com/jmnicolas90/Ding/issues/new?template=bug_report.md);
+if you have a concrete suggestion, please
+[file a feature request](https://github.com/jmnicolas90/Ding/issues/new?template=feature_request.md).
+Search the [existing issues](https://github.com/jmnicolas90/Ding/issues?q=is%3Aissue)
+first. If you want to work on the code, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
-If you discover a **problem**, please [create a bug report](https://github.com/jmnicolas90/Ding/issues/new?template=bug_report.md).
-If you have a **concrete suggestion**, file a [feature request](https://github.com/jmnicolas90/Ding/issues/new?template=feature_request.md).
+## License
 
-In either case, search the [existing issues](https://github.com/jmnicolas90/Ding/issues?q=is%3Aissue) and the list of planned features above first.
+GPL-3.0-or-later, as the original was. There is no warranty.
 
-## Contributing
-If you have ideas on how to improve SimpleReminder, you are welcome to contribute. There are several ways you can contribute:
-- Share your ideas (see "Feedback")
-- Help with graphics design (more information follows)
-- Implement features or maintain code (see [Contributing](CONTRIBUTING.md) for more information)
-- Translate SimpleReminder (please wait until the app has reached a more complete state)
-
-For a list of contributors, see [CONTRIBUTORS.md](CONTRIBUTORS.md).
-
-
-## License ##
-
-Copyright (C) 2018-2025 Felix Wiemuth and [contributors](CONTRIBUTORS.md)
-
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-This program includes third party software which is licensed under their own terms.
-See [LICENSE.md](LICENSE.md) for details regarding licenses.
-
-<!--  LocalWords:  customizable SimpleReminder Wiemuth
- -->
+Copyright (C) 2018-2025 Felix Wiemuth and [contributors](CONTRIBUTORS.md) for
+the original SimpleReminder, and Copyright (C) 2026 Jean-Michel Nicolas for the
+fork's changes. Ding also includes third-party software licensed under its own
+terms. The details are in [LICENSE.md](LICENSE.md), the full licence texts in
+[LICENSES/](LICENSES), and the credits in [CONTRIBUTORS.md](CONTRIBUTORS.md).

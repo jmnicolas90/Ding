@@ -1,8 +1,11 @@
 # Contributors
 This file lists people who made contributions to the project. The exact contributions are tracked by the VCS (Git). Note that each contribution is implicitly made under the project's license (see LICENSE.md).
 
+## Fork
+Ding is a fork of SimpleReminder. It is maintained by [Jean-Michel Nicolas](https://github.com/jmnicolas90/).
+
 ## Development and maintenance
-The app is currently developed and maintained by [Felix Wiemuth](https://github.com/felixwiemuth/).
+The original project, SimpleReminder, was developed and maintained by [Felix Wiemuth](https://github.com/felixwiemuth/).
 
 ### Source code contributions
 The following people have made source code contributions:
