@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018-2025 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
+ * Copyright (C) 2026 Jean-Michel Nicolas
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,16 +32,29 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import app.ding.data.Reminder
 import app.ding.data.Reminder.Status
+import app.ding.state.AlarmKind
+import app.ding.state.NotificationKind
+import app.ding.state.ReminderCommand
+import app.ding.state.ReminderCommandRunner
+import app.ding.state.ReminderEffect
+import app.ding.state.ReminderEffectExecutor
+import app.ding.state.TransitionOutcome
 import app.ding.ui.EditReminderDialogActivity
 import app.ding.util.AlarmManagerUtil
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.util.*
+import java.util.Date
 
 /**
- * Manages current reminders by allowing to add, update and remove reminders. Also handles scheduling of notifications.
+ * The app's way in to reminder state. Every change goes through [run], [addReminder]
+ * or [reconcileAllReminders], which hand the work to the one runner (lock, read,
+ * decide, write, then act) in `app.ding.state`.
+ *
+ * What lives here is the Android half: the alarms, the notifications and the
+ * pending intents. The decisions themselves are in
+ * [app.ding.state.transition], which knows nothing about Android.
  */
 object ReminderManager {
 
@@ -50,6 +64,54 @@ object ReminderManager {
     const val NOTIFICATION_CHANNEL_REMINDER = "Reminder"
 
     private const val OFFSET_REQUEST_CODE_ADD_REMINDER_DIALOG_ACTIVITY_PENDING_INTENT = Reminder.MAX_REMINDER_ID + 1
+
+    /**
+     * The one runner, kept for the life of the process so that its lock actually
+     * excludes concurrent commands.
+     */
+    private var runner: ReminderCommandRunner? = null
+
+    @Synchronized
+    private fun runner(context: Context): ReminderCommandRunner {
+        val applicationContext = context.applicationContext
+        return runner ?: ReminderCommandRunner(
+            ReminderStorage.storeIn(applicationContext),
+            AlarmsAndNotifications(applicationContext)
+        ).also { runner = it }
+    }
+
+    /**
+     * Run a command against the stored reminders. The only public way to change a
+     * reminder, apart from [addReminder], which has to allocate an id first.
+     */
+    fun run(context: Context, command: ReminderCommand): TransitionOutcome =
+        runner(context).run(command)
+
+    /**
+     * Add the reminder described by the given builder and schedule it. A new ID is
+     * assigned by the store.
+     *
+     * @return [TransitionOutcome.Updated] with the stored reminder, or
+     *     [TransitionOutcome.Refused] if the due time is not in the future
+     */
+    @JvmStatic
+    fun addReminder(context: Context, reminderBuilder: Reminder.Builder): TransitionOutcome =
+        runner(context).add(
+            reminderBuilder.date.time,
+            reminderBuilder.text,
+            reminderBuilder.naggingRepeatInterval
+        )
+
+    /**
+     * Bring alarms and notifications back in line with the stored reminders: schedule
+     * every future reminder, deliver every past-due one, re-show every reminder that
+     * was delivered and not dealt with. Run once per process start.
+     */
+    @JvmStatic
+    fun reconcileAllReminders(context: Context) {
+        Log.d("Reconcile", "Bringing alarms and notifications back in line with the store")
+        runner(context).reconcileAll()
+    }
 
     /**
      * Request code for a pending intent to be used to start [app.ding.ui.EditReminderDialogActivity].
@@ -69,14 +131,19 @@ object ReminderManager {
         abstract val reminderId: Int
 
         /**
-         * Show the reminder and set its status to [Status.NOTIFIED]. Should be used on due reminders.
-         * Schedules the next nag event if the reminder is nagging.
+         * Deliver the reminder: show its notification and move it to [Status.NOTIFIED].
+         * Carries the due time it was scheduled for, so that an alarm set for a due time
+         * the store no longer holds is recognised as stale and ignored.
          */
         @Serializable
-        class Notify(override val reminderId: Int) : ReminderAction() {
+        data class Deliver(
+            override val reminderId: Int,
+            val expectedDueTime: Long = 0
+        ) : ReminderAction() {
             /**
              * Get a minimal [PendingIntent] suitable to cancel one created with [toPendingIntent]
-             * (i.e., a matching one).
+             * (i.e., a matching one). Pending intents match on request code and intent, not on
+             * extras, so this cancels whichever alarm holds the reminder's slot.
              */
             fun getCancelPendingIntent(context: Context): PendingIntent =
                 makePendingIntent(context)
@@ -84,17 +151,20 @@ object ReminderManager {
 
         /**
          * Repeat the notification and schedule the next repetition according to the reminder's
-         * [Reminder.naggingRepeatInterval].
+         * [Reminder.naggingRepeatInterval]. Carries the same expected due time as [Deliver].
          */
         @Serializable
-        class Nag(override val reminderId: Int) : ReminderAction()
+        data class Nag(
+            override val reminderId: Int,
+            val expectedDueTime: Long = 0
+        ) : ReminderAction()
 
         /**
          * Mark the reminder done (set its status to [Status.DONE] and cancel any current
          * notifications or scheduled actions).
          */
         @Serializable
-        class MarkDone(override val reminderId: Int) : ReminderAction()
+        data class MarkDone(override val reminderId: Int) : ReminderAction()
 
         fun toJson(): String = Json.encodeToString(this)
 
@@ -108,29 +178,20 @@ object ReminderManager {
         }
 
         /**
-         * Run the action.
+         * The command this action asks for.
+         */
+        fun toCommand(): ReminderCommand = when (this) {
+            is Deliver -> ReminderCommand.Deliver(reminderId, expectedDueTime)
+            is Nag -> ReminderCommand.Nag(reminderId, expectedDueTime)
+            is MarkDone -> ReminderCommand.MarkDone(reminderId)
+        }
+
+        /**
+         * Run the action. A reminder that is no longer stored, or an alarm that no longer
+         * matches the stored due time, is cleaned up rather than treated as an error.
          */
         fun run(context: Context) {
-            val reminder = ReminderStorage.getReminder(context, reminderId)
-            when (this) {
-                is Notify -> {
-                    showReminder(context, reminder)
-                }
-                is Nag -> {
-                    // Send the same notification again (replaces the previous)
-                    sendNotification(context, reminder, displayOriginalDueTime = Prefs.isDisplayOriginalDueTimeNag(context))
-                    // Schedule next repetition. This calculates the next occurrence based on the original due date which makes it
-                    // unnecessary to save it in the reminder action and in case the execution of this action is delayed more than
-                    // one repeat interval, this prevents showing all missed occurrences in a row.
-                    scheduleNextNag(context, reminder)
-                }
-                is MarkDone -> {
-                    // Cancel possible further alarms (nagging reminders)
-                    cancelReminder(context, reminder.id)
-                    reminder.status = Status.DONE
-                    updateReminder(context, reminder, false)
-                }
-            }
+            run(context, toCommand())
         }
 
         /**
@@ -139,7 +200,7 @@ object ReminderManager {
          */
         private fun getRequestCode(): Int =
             when (this) {
-                is Notify, is Nag -> reminderId
+                is Deliver, is Nag -> reminderId
                 is MarkDone -> reminderId + 1
             }
 
@@ -193,69 +254,41 @@ object ReminderManager {
     }
 
     /**
-     * Schedule a reminder to be processed at its due time.
+     * Carries out what the transition function decided: puts alarms in reminders' slots
+     * and notifications on the screen.
      */
-    private fun scheduleReminder(context: Context, reminder: Reminder) {
-        val action = ReminderAction.Notify(reminder.id)
-        AlarmManagerUtil.scheduleExact(context, reminder.date, action.toPendingIntent(context))
-    }
+    private class AlarmsAndNotifications(private val context: Context) : ReminderEffectExecutor {
+        override fun execute(effect: ReminderEffect) {
+            when (effect) {
+                is ReminderEffect.SetAlarm -> setAlarm(context, effect)
+                is ReminderEffect.CancelAlarm -> cancelAlarm(context, effect.reminderId)
+                is ReminderEffect.ShowNotification ->
+                    sendNotification(context, effect.reminder, effect.kind)
 
-    /**
-     * Cancel a reminder, i.e., cancel if scheduled, remove notification if present.
-     */
-    private fun cancelReminder(context: Context, id: Int) {
-        // Cancel possible notification
-        val notificationManager = NotificationManagerCompat.from(context)
-        notificationManager.cancel(id)
-
-        // Cancel possibly scheduled alarm
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        alarmManager.cancel(ReminderAction.Notify(id).getCancelPendingIntent(context))
-    }
-
-
-    /**
-     * Show the reminder and update its status. Should be used on due reminders.
-     * Schedules the next nag event if the reminder is nagging.
-     *
-     * @param context
-     * @param reminder
-     */
-    private fun showReminder(context: Context, reminder: Reminder) {
-        sendNotification(context, reminder, displayOriginalDueTime = Prefs.isDisplayOriginalDueTimeNormal(context))
-        reminder.status = Status.NOTIFIED
-        updateReminder(context, reminder, false)
-        if (reminder.isNagging) {
-            scheduleNextNag(context, reminder)
+                is ReminderEffect.CancelNotification ->
+                    NotificationManagerCompat.from(context).cancel(effect.reminderId)
+            }
         }
     }
 
-    private fun scheduleReminderAction(context: Context, date: Date, action: ReminderAction) {
-        AlarmManagerUtil.scheduleExact(context, date, action.toPendingIntent(context))
+    /**
+     * Put an alarm in the reminder's slot, replacing whatever is there. Deliver and Nag
+     * share the slot because they share the request code.
+     */
+    private fun setAlarm(context: Context, effect: ReminderEffect.SetAlarm) {
+        val action = when (effect.kind) {
+            AlarmKind.DELIVER -> ReminderAction.Deliver(effect.reminderId, effect.expectedDueTime)
+            AlarmKind.NAG -> ReminderAction.Nag(effect.reminderId, effect.expectedDueTime)
+        }
+        AlarmManagerUtil.scheduleExact(context, Date(effect.at), action.toPendingIntent(context))
     }
 
     /**
-     * Schedule the next [ReminderAction.Nag] action for a nagging reminder
-     * at the next occurrence in the future according to its original schedule.
+     * Empty the reminder's alarm slot.
      */
-    private fun scheduleNextNag(context: Context, reminder: Reminder) {
-        assert(reminder.isNagging)
-        val nextNagTime = calculateNextNagTime(reminder)
-        scheduleReminderAction(context, Date(nextNagTime), ReminderAction.Nag(reminder.id))
-    }
-
-    /**
-     * Calculate the next occurrence of a nagging reminder in the future based on its original due date.
-     */
-    private fun calculateNextNagTime(reminder: Reminder): Long {
-        assert(reminder.isNagging)
-        val d = reminder.naggingRepeatIntervalInMillis
-        val now = System.currentTimeMillis()
-        val sinceDue = now - reminder.date.time
-        val sinceLastNag = sinceDue % d
-        val untilNextNag = d - sinceLastNag
-        val nextNag = now + untilNextNag
-        return nextNag
+    private fun cancelAlarm(context: Context, reminderId: Int) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarmManager.cancel(ReminderAction.Deliver(reminderId).getCancelPendingIntent(context))
     }
 
     /**
@@ -263,9 +296,16 @@ object ReminderManager {
      *
      * @param context
      * @param reminder
-     * @param silent whether the notification should be shown silently without any alert
+     * @param kind why the notification is being shown: a delivery and a nag alert, a
+     *     re-show after the process was restarted is silent
      */
-    private fun sendNotification(context: Context, reminder: Reminder, displayOriginalDueTime: Boolean = false, silent: Boolean = false) {
+    private fun sendNotification(context: Context, reminder: Reminder, kind: NotificationKind) {
+        val displayOriginalDueTime = when (kind) {
+            NotificationKind.DELIVER -> Prefs.isDisplayOriginalDueTimeNormal(context)
+            NotificationKind.NAG -> Prefs.isDisplayOriginalDueTimeNag(context)
+            NotificationKind.RESHOW -> Prefs.isDisplayOriginalDueTimeRecreate(context)
+        }
+        val silent = kind == NotificationKind.RESHOW
         val markDoneAction = ReminderAction.MarkDone(reminder.id)
         val markDoneIntent = markDoneAction.toPendingIntent(context)
         val editReminderIntent = EditReminderDialogActivity.getIntentEditReminder(context, reminder.id)
@@ -287,6 +327,10 @@ object ReminderManager {
                 it.setWhen(reminder.date.time).setShowWhen(true)
         }
             .setSilent(silent)
+            // Defence in depth against a duplicate delivery alerting twice. The guard in
+            // the transition function is what prevents the duplicate; this only limits
+            // the damage if one ever gets through.
+            .setOnlyAlertOnce(true)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(context.getString(R.string.notification_title))
             .setContentText(reminder.text)
@@ -302,133 +346,6 @@ object ReminderManager {
             notificationManager.notify(reminder.id, builder.build())
         } else {
             Log.e("Notifications", "Cannot send notification for reminder: permission not granted.")
-        }
-    }
-
-    /**
-     * Add the reminder described by the given builder and schedule it.
-     * A new ID is assigned by the store.
-     *
-     * @param context
-     * @param reminderBuilder
-     * @return the resulting reminder
-     */
-    @JvmStatic
-    fun addReminder(context: Context, reminderBuilder: Reminder.Builder): Reminder {
-        val reminder = ReminderStorage.addReminder(context, reminderBuilder)
-        scheduleReminder(context, reminder)
-        return reminder
-    }
-
-    /**
-     * Add the given reminder (with the given ID) and schedule it.
-     *
-     * @param context
-     * @param reminder
-     */
-    private fun addReminder(context: Context, reminder: Reminder) {
-        ReminderStorage.addReminder(context, reminder)
-        scheduleReminder(context, reminder)
-    }
-
-    /**
-     * Replaces the reminder which has the ID of the given reminder with the given reminder.
-     * If no reminder with that ID exists, the reminder will be created.
-     *
-     * @param context
-     * @param reminder
-     * @param reschedule if true, checks whether the reminder should be rescheduled: If the given reminder's status is not [Status.SCHEDULED] or its time is not in the future, a possible scheduled notification is cancelled. If the status is [Status.SCHEDULED] and its time is in the future, a notification is scheduled.
-     */
-    @JvmStatic
-    fun updateReminder(context: Context, reminder: Reminder, reschedule: Boolean) {
-        ReminderStorage.updateReminder(context, reminder)
-        if (reschedule) {
-            rescheduleReminder(context, reminder)
-        }
-    }
-
-    /**
-     * For each given reminder, replaces the existing reminder which has the ID of the given reminder with the given reminder.
-     *
-     * @param context
-     * @param reminders
-     * @param reschedule if true, checks whether the reminders should be rescheduled: If the given reminder's status is not [Status.SCHEDULED] or its time is not in the future, a possible scheduled notification is cancelled. If the status is [Status.SCHEDULED] and its time is in the future, a notification is scheduled.
-     */
-    fun updateReminders(context: Context, reminders: Iterable<Reminder>, reschedule: Boolean) {
-        ReminderStorage.updateReminders(context, reminders)
-        if (reschedule) {
-            reminders.forEach { rescheduleReminder(context, it) }
-        }
-    }
-
-    /**
-     * Update the reminders with the given IDs with the given transformation.
-     *
-     * @param context
-     * @param transformation
-     * @param ids
-     * @param reschedule if true, checks whether the reminders should be rescheduled: If the given reminder's status is not [Status.SCHEDULED] or its time is not in the future, a possible scheduled notification is cancelled. If the status is [Status.SCHEDULED] and its time is in the future, a notification is scheduled.
-     */
-    fun updateReminders(
-        context: Context,
-        transformation: (Reminder) -> Unit,
-        ids: Set<Int>,
-        reschedule: Boolean
-    ) {
-        val updated = ReminderStorage.updateReminders(context, transformation, ids)
-        if (reschedule) {
-            updated.forEach { rescheduleReminder(context, it) }
-        }
-    }
-
-    /**
-     * Cancel potential existing scheduling and notification for the given reminder and reschedule it if its status is [Status.SCHEDULED] and its time is in the future.
-     *
-     * @param context
-     * @param reminder
-     */
-    private fun rescheduleReminder(context: Context, reminder: Reminder) {
-        cancelReminder(context, reminder.id)
-        val isFuture = reminder.date.time > System.currentTimeMillis()
-        if (reminder.status === Status.SCHEDULED && isFuture) {
-            scheduleReminder(context, reminder)
-        }
-    }
-
-    /**
-     * Schedule all future reminders and show all due, but not yet notified, reminders.
-     * Schedule also the next nag for due nagging reminders.
-     * If some of the reminders are already scheduled, the new registration should replace the previous.
-     * Due reminders are re-shown silently.
-     *
-     * @param context
-     */
-    @JvmStatic
-    fun scheduleAndReshowAllReminders(context: Context) {
-        Log.d("SchedulingShowing", "Rescheduling all alarms and reshowing all notifications")
-        val currentTime = System.currentTimeMillis()
-        for (r in ReminderStorage.getReminders(context)) {
-            when (r.status) {
-                Status.SCHEDULED -> if (r.date.time <= currentTime) showReminder(context, r) else scheduleReminder(context, r)
-                Status.NOTIFIED -> {
-                    sendNotification(context, r, silent = true, displayOriginalDueTime = Prefs.isDisplayOriginalDueTimeRecreate(context))
-                    if (r.isNagging) scheduleNextNag(context, r)
-                }
-                Status.DONE -> {}
-            }
-        }
-    }
-
-    /**
-     * Remove the reminders with the given IDs from the current reminders. Cancels pending notifications.
-     *
-     * @param context
-     * @param ids
-     */
-    fun removeReminders(context: Context, ids: Set<Int>) {
-        ReminderStorage.removeReminders(context, ids)
-        for (id in ids) {
-            cancelReminder(context, id)
         }
     }
 

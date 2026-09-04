@@ -63,7 +63,9 @@ transition(stored: Reminder?, command: Command, now: Instant)
 ```
 
 Pure. No Android imports, no preferences, no clock of its own. `stored` is
-the reminder as read from the store under the lock, or absent.
+the reminder as read from the store under the lock, or absent. Times are epoch
+milliseconds in the implementation, matching the `Date` the store already
+holds; nothing in the model depends on which of the two it is.
 
 Outcomes:
 

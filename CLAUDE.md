@@ -140,8 +140,9 @@ before touching reminder state. The short version:
   nag delayed past several intervals fires once, not once per missed
   occurrence.
 - **Reminder ids are even, and allocated by a counter in shared
-  preferences.** `ReminderStorage.addReminder` reads `PREF_STATE_NEXTID`,
-  assigns it, and stores back `nextId + 2` in the same commit.
+  preferences.** The runner reads `PREF_STATE_NEXTID` under its lock, gives it
+  to the new reminder, and writes back `nextId + 2` in the same commit as the
+  reminder list.
 - **The id doubles as the notification id and as the `PendingIntent` request
   code**, which is what the even-numbered allocation is for. A reminder's
   Deliver and Nag alarms both use request code `id`, so they share one alarm
@@ -152,17 +153,24 @@ before touching reminder state. The short version:
   is an identity across three different Android subsystems at once, and
   reusing or re-deriving one silently cross-wires alarms, notifications and
   intents.
-- **Two rules from `docs/reminder-state-machine.md` are the target design,
-  not today's behaviour.** Every Deliver and Nag alarm is meant to carry the
-  due time it was set for, so a mismatch with the stored due time marks the
-  alarm stale and it is ignored rather than treated as an error; and a
-  missing reminder is meant to be cleanup, never a crash. Neither holds yet.
-  `ReminderAction` serializes only the reminder id, so nothing can tell a
-  stale alarm from a live one and a cold-start sweep followed by the delivered
-  alarm can alert the same reminder twice; and `ReminderAction.run` calls
-  `ReminderStorage.getReminder`, which throws `ReminderNotFoundException`
-  instead of cleaning up when the reminder is gone. Ticket 10 implements the
-  transition boundary and closes both.
+- **Every reminder state change goes through one pure function** (ticket 10).
+  `app/src/main/java/app/ding/state/ReminderTransition.kt` holds
+  `transition(stored, command, now)`, which returns an outcome and a list of
+  effects and has no Android imports at all, so it is tested on a plain JVM
+  with a fixed clock. `ReminderCommandRunner` in the same package wraps it:
+  lock, read, transition, write, then effects — persist first, always.
+  `ReminderManager` is the Android half (alarms, notifications, pending
+  intents) and exposes `run`, `addReminder` and `reconcileAllReminders`;
+  `ReminderStorage` reads publicly and hands its writes to the runner alone.
+  `Reminder.status` is a `val`.
+- **The stale-alarm rule and the missing-reminder rule both hold now.** Every
+  Deliver and Nag alarm carries the due time it was set for, and a mismatch
+  with the stored due time makes the alarm stale: ignored, not an error. A
+  reminder that is not in the store is cleanup — `Unchanged` plus cancel alarm
+  and cancel notification — never an exception, so `ReminderAction.run` no
+  longer calls a `getReminder` that throws. Together with the status guard,
+  that is what stops a cold-start sweep and the alarm that woke the process
+  from alerting the same reminder twice.
 
 ## Tickets and bookkeeping
 

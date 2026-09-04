@@ -22,10 +22,12 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import app.ding.R
-import app.ding.ReminderManager.updateReminder
+import app.ding.ReminderManager
 import app.ding.ReminderStorage.ReminderNotFoundException
 import app.ding.ReminderStorage.getReminder
 import app.ding.data.Reminder
+import app.ding.state.ReminderCommand
+import app.ding.state.TransitionOutcome
 
 /**
  * Shows a dialog allowing to edit a reminder. Finishes with [.RESULT_OK] if the reminder has been edited.
@@ -38,6 +40,12 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
      * The ID of the reminder to be updated.
      */
     private var reminderToUpdate = -1
+
+    /**
+     * The due time the reminder had when the dialog opened, which is what tells an
+     * edit (same due time) from a reschedule (a different one).
+     */
+    private var dueTimeOfReminderToUpdate = 0L
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setTitle(R.string.edit_reminder_title)
@@ -77,6 +85,7 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
                 naggingRepeatInterval = reminder.naggingRepeatInterval
             }
             reminderToUpdate = reminderId
+            dueTimeOfReminderToUpdate = reminder.date.time
         } catch (e: ReminderNotFoundException) {
             Log.w("AddReminder", "Intent contains invalid reminder ID.")
             Toast.makeText(this, R.string.error_msg_reminder_not_found, Toast.LENGTH_LONG).show()
@@ -86,11 +95,41 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
 
     override fun onDone() {
         val reminderBuilder = buildReminderWithTimeTextNagging()
-        reminderBuilder.id = reminderToUpdate
-        val reminder = reminderBuilder.build()
-        updateReminder(this, reminder, true)
-        makeToast(reminder)
-        completeActivity()
+        val dueTime = reminderBuilder.date.time
+        // The due time decides the command: unchanged is an edit, which leaves the state
+        // and the alarm alone; changed is a reschedule, which re-arms from any state.
+        // The finer cases are ticket 11's.
+        val command = if (dueTime == dueTimeOfReminderToUpdate) {
+            ReminderCommand.Edit(
+                reminderToUpdate,
+                reminderBuilder.text,
+                reminderBuilder.naggingRepeatInterval
+            )
+        } else {
+            ReminderCommand.Reschedule(
+                reminderToUpdate,
+                dueTime,
+                reminderBuilder.text,
+                reminderBuilder.naggingRepeatInterval
+            )
+        }
+        when (val outcome = ReminderManager.run(this, command)) {
+            is TransitionOutcome.Updated -> {
+                makeToast(outcome.reminder)
+                completeActivity()
+            }
+            // A due time that is not in the future is refused: say so and leave the
+            // dialog open so the time can be corrected.
+            is TransitionOutcome.Refused ->
+                Toast.makeText(this, R.string.add_reminder_toast_invalid_date, Toast.LENGTH_LONG).show()
+            // Nothing was written, which normally means the reminder was removed while
+            // this dialog was open. Separating that from a failed write is ticket 12.
+            else -> {
+                Log.w("EditReminder", "The reminder was not updated: $outcome")
+                Toast.makeText(this, R.string.error_msg_reminder_not_found, Toast.LENGTH_LONG).show()
+                completeActivity()
+            }
+        }
     }
 
     companion object {
