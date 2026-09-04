@@ -25,8 +25,8 @@
         <!--suppress AndroidDomInspection -->
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetClass="felixwiemuth.simplereminder.ui.AddReminderDialogActivity"
-            android:targetPackage="felixwiemuth.simplereminder.dev" />  <!-- NOTE: Must be set to application ID -->
+            android:targetClass="app.ding.ui.AddReminderDialogActivity"
+            android:targetPackage="app.ding" />  <!-- NOTE: Must be set to application ID -->
     </shortcut>
 
 </shortcuts>

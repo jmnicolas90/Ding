@@ -12,11 +12,13 @@ worth having gets cherry-picked by hand. That is what buys the freedom to
 raise `minSdk` and restructure at will. Keep the GPL attribution
 (`LICENSE.md`, `CONTRIBUTORS.md`); it is a legal obligation, not a leftover.
 
-**The rename is pending.** The app is called Ding, but the code still says
-SimpleReminder: `applicationId "felixwiemuth.simplereminder.dev"`, namespace
-`felixwiemuth.simplereminder`, package directories to match. Ticket 05
-renames all of it to `app.ding`. Until then, write "Ding" in prose and leave
-the identifiers alone unless you are working that ticket.
+**The rename is done** (ticket 05). `applicationId` and `namespace` are both
+`app.ding`, the source package is `app.ding.*`, and the app name the user sees
+is "Ding". There is one build identity for every build type: upstream's
+release-channel scheme is gone, including the digit it took out of the version
+code. What still says SimpleReminder is deliberate and stays: the GPL
+copyright headers, `CONTRIBUTORS.md`, the upstream links and changelog entries
+that ticket 06 and ticket 07 own, and the historical record under `.scratch/`.
 
 ## Hard constraints — do not break these
 

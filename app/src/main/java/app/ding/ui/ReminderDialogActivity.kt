@@ -1,0 +1,717 @@
+/*
+ * Copyright (C) 2018-2025 Felix Wiemuth and contributors (see CONTRIBUTORS.md)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+package app.ding.ui
+
+import android.app.Activity
+import android.app.DatePickerDialog
+import android.content.DialogInterface
+import android.content.res.Resources
+import android.os.Bundle
+import android.text.Editable
+import android.text.InputType
+import android.text.SpannableString
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextWatcher
+import android.text.style.BackgroundColorSpan
+import android.text.style.ForegroundColorSpan
+import android.util.TypedValue
+import android.view.KeyEvent
+import android.view.View
+import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.AutoCompleteTextView
+import android.widget.Button
+import android.widget.DatePicker
+import android.widget.LinearLayout
+import android.widget.NumberPicker
+import android.widget.RadioButton
+import android.widget.TextView
+import android.widget.TimePicker
+import android.widget.Toast
+import androidx.activity.addCallback
+import androidx.annotation.StringRes
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
+import androidx.core.view.children
+import app.ding.Prefs
+import app.ding.R
+import app.ding.data.Reminder
+import app.ding.data.Reminder.Companion.builder
+import app.ding.util.DateTimeUtil
+import app.ding.util.TextBasedTimeInput.TimeMatcher
+import app.ding.util.setOneTimeClickListener
+import java.util.Calendar
+
+/**
+ * Base class for the reminder dialog activity which is used to add and edit reminders.
+ */
+abstract class ReminderDialogActivity : AppCompatActivity() {
+    private val inputMethodManager by lazy {
+        getSystemService(Activity.INPUT_METHOD_SERVICE) as InputMethodManager
+    }
+    protected lateinit var nameTextView: AutoCompleteTextView
+    private lateinit var highlightSpan: BackgroundColorSpan
+    private lateinit var timeMatcher: TimeMatcher
+
+    /**
+     * If not 0, the time is currently selected text-based and the number is the end of the match in nameTextView (exclusive).
+     * This is only updated by the change listener on nameTextView.
+     */
+    private var currentMatchedTimeInputEnd = 0
+
+    private var currentTimeMatch: TimeMatcher.TimeMatch? = null
+    private var updateCurrentMatchedTimeInputEnd = 0 // The next value to set for currentMatchedTimeInputEnd
+    protected lateinit var naggingSwitch: SwitchCompat
+    private lateinit var addButton: Button
+    private lateinit var dateMinusButton: Button
+    private lateinit var datePlusButton: Button
+    private lateinit var dateDisplay: TextView
+    private lateinit var timePicker: TimePicker
+    private var timePickerChangeListenerEnabled = true
+    private lateinit var dateSelectionMode: DateSelectionMode
+
+    /**
+     * The currently selected date. It is an invariant that after every user interaction this
+     * date is in the future (except initially, before changing time or date).
+     */
+    private lateinit var selectedDate: Calendar
+
+    @JvmField
+    protected var naggingRepeatInterval = 0
+
+    private enum class DateSelectionMode {
+        /**
+         * The date is derived from the chosen time, so that this time lies within the next 24 hours.
+         */
+        NEXT24,
+
+        /**
+         * The date is selected manually.
+         */
+        MANUAL
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_reminder_dialog)
+
+        // Note: This adds a warning in logcat "OnBackInvokedCallback is not enabled for the application",
+        // but this is about predictive back navigation, and the callback works.
+        onBackPressedDispatcher.addCallback { completeActivity() }
+
+        nameTextView = findViewById(R.id.nameTextView)
+        addButton = findViewById(R.id.addButton)
+        dateMinusButton = findViewById(R.id.dateMinusButton)
+        dateMinusButton.setOnClickListener { decrementDateAction() }
+        datePlusButton = findViewById(R.id.datePlusButton)
+        datePlusButton.setOnClickListener { incrementDateAction() }
+        dateDisplay = findViewById(R.id.dateDisplay)
+        dateDisplay.setOnClickListener {
+            DatePickerDialog(
+                this@ReminderDialogActivity,
+                { _: DatePicker?, year: Int, month: Int, dayOfMonth: Int -> setDateAction(year, month, dayOfMonth) },
+                selectedDate[Calendar.YEAR],
+                selectedDate[Calendar.MONTH],
+                selectedDate[Calendar.DAY_OF_MONTH]
+            ).show()
+        }
+        naggingSwitch = findViewById(R.id.naggingSwitch)
+        naggingSwitch.setOnClickListener {
+            if (naggingSwitch.isChecked) {
+                showToastNaggingRepeatInterval()
+            }
+        }
+        naggingSwitch.setOnLongClickListener {
+            showChooseNaggingRepeatIntervalDialog()
+            true
+        }
+
+        timePicker = findViewById(R.id.timePicker)
+
+        if (!Prefs.getBooleanPref(R.string.prefkey_reminder_dialog_timepicker_show_keyboard_button, true, this)
+            || Prefs.getBooleanPref(R.string.prefkey_reminder_dialog_timepicker_customize_size, true, this)
+        ) {
+            adaptTimePickerLayout()
+        }
+
+
+        nameTextView.imeOptions = EditorInfo.IME_ACTION_DONE
+        nameTextView.setImeActionLabel(getString(R.string.keyboard_action_add_reminder), EditorInfo.IME_ACTION_DONE)
+        nameTextView.requestFocus()
+        nameTextView.setRawInputType(InputType.TYPE_CLASS_TEXT)
+        nameTextView.setOnEditorActionListener { _: TextView?, actionId: Int, _: KeyEvent? ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                onDone()
+                return@setOnEditorActionListener true
+            }
+            false
+        }
+
+        highlightSpan = BackgroundColorSpan(resources.getColor(R.color.text_bg_highlight_match))
+        timeMatcher = TimeMatcher(
+            separatorRelativeTime = ":",
+            separatorAbsoluteTime = ".",
+            prefixRelativeTime = "\\+"
+        ) // TODO initialize with user-chosen symbols
+        if (Prefs.getBooleanPref(
+                R.string.prefkey_text_based_time_enabled,
+                false,
+                this
+            )
+        ) {
+            nameTextView.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {
+                }
+
+                override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {
+                    // Possible optimization: check here whether change affects possibly match,
+                    // e.g. by checking it is with the range where a spec can be.
+                }
+
+                override fun afterTextChanged(s: Editable) {
+                    // We only need to render the date if there is a match, or if there is no match while there was a match before.
+                    var renderDate = false
+                    val match = timeMatcher.match(s)
+                    if (match != currentTimeMatch) {
+                        currentTimeMatch = match
+                        if (match != null) {
+                            updateCurrentMatchedTimeInputEnd = match.rangeLast + 1
+                            if (match.isRelative) {
+                                val calendar = Calendar.getInstance()
+                                calendar.add(Calendar.MINUTE, match.minute)
+                                calendar.add(Calendar.HOUR_OF_DAY, match.hour) // TODO test with 12 hour format
+                                setSelectedDateTime(calendar) // setting full date
+                                updateTimePicker(calendar)
+                            } else {
+                                updateTimePicker(match.hour, match.minute)
+                                setHourMinute(match.hour, match.minute)
+                            }
+                            // Rendering date below, after having updated currentMatchedTimeInputEnd
+                            renderDate = true
+                        } else {
+                            updateCurrentMatchedTimeInputEnd = 0
+                        }
+                    }
+
+                    // Only update span when it changed (because updating span will call the change listener again)
+                    if (currentMatchedTimeInputEnd != updateCurrentMatchedTimeInputEnd) {
+                        currentMatchedTimeInputEnd = updateCurrentMatchedTimeInputEnd
+                        // Update range of the highlightSpan
+                        // Note: It works well when reusing this span, but somehow not with s.removeSpans() and s.setSpan with a new span
+                        s.removeSpan(highlightSpan) // without this, the span will extend, but not reduce
+                        s.setSpan(highlightSpan, 0, currentMatchedTimeInputEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        renderDate = true
+                    }
+
+                    if (renderDate) {
+                        renderSelectedDate()
+                    }
+                }
+            })
+        }
+
+        selectedDate = Calendar.getInstance() // Initialize calendar variable
+        setSelectedDateTimeAndSelectionMode(Calendar.getInstance())
+
+        with(timePicker) {
+            setIs24HourView(true)
+            setOnTimeChangedListener { _: TimePicker?, hourOfDay: Int, minute: Int ->
+                if (timePickerChangeListenerEnabled) {
+
+                    // If using the time picker, remove text-based time selection
+                    removeTextBasedTimeSelection()
+                    setHourMinute(hourOfDay, minute)
+
+                    if (dateSelectionMode == DateSelectionMode.NEXT24) {
+                        // Only in NEXT24 mode the date can change
+                        renderSelectedDate()
+                    }
+                }
+            }
+            if (Prefs.getBooleanPref(
+                    R.string.prefkey_reminder_dialog_close_keyboard_on_timepicker_use,
+                    false,
+                    this@ReminderDialogActivity
+                )
+            ) {
+                // Close the keyboard and remove focus from the TextView when touching any view in the TimePicker
+                fun addKbCloseOnTouch(view: View) {
+                    // noinspection ClickableViewAccessibility
+                    view.setOnTouchListener { _, _ ->
+                        inputMethodManager.hideSoftInputFromWindow(this.windowToken, 0)
+                        nameTextView.clearFocus()
+                        false
+                    }
+                    if (view is ViewGroup) {
+                        view.children.forEach { addKbCloseOnTouch(it) }
+                    }
+                }
+                addKbCloseOnTouch(this)
+            }
+        }
+        addButton.setOneTimeClickListener { onDone() }
+        naggingRepeatInterval = Prefs.getNaggingRepeatInterval(this)
+    }
+
+
+    protected fun setTextMovingCursorToEnd(text: CharSequence?) {
+        nameTextView.setText(text)
+        nameTextView.setSelection(nameTextView.length())
+    }
+
+    /**
+     * Remove text-based time specification from text input (if present).
+     */
+    private fun removeTextBasedTimeSelection() {
+        if (currentMatchedTimeInputEnd != 0) {
+            // As the reminder text still contains the time specification, it is important that currentMatchedTimeInputEnd is not changed here
+            updateCurrentMatchedTimeInputEnd = 0 // The text change event triggered by the next line will update the span
+            setTextMovingCursorToEnd(getCurrentReminderText())
+        }
+    }
+
+    /**
+     * Remove a **relative** text-based time specification from text input (if present).
+     */
+    private fun removeRelativeTextBasedTimeSelection() {
+        if (currentTimeMatch?.isRelative == true) {
+            removeTextBasedTimeSelection()
+        }
+    }
+
+    /**
+     * Only updates the state of the time picker and not the selected date and time.
+     */
+    protected fun updateTimePicker(calendar: Calendar) {
+        updateTimePicker(calendar[Calendar.HOUR_OF_DAY], calendar[Calendar.MINUTE])
+    }
+
+    /**
+     * Only updates the state of the time picker and not the selected date and time.
+     */
+    protected fun updateTimePicker(hour: Int, minute: Int) {
+        timePickerChangeListenerEnabled = false
+        timePicker.hour = hour
+        timePicker.minute = minute
+        timePickerChangeListenerEnabled = true
+    }
+
+    /**
+     * Set hour and minute of the selected date, and update the date if in NEXT24 mode.
+     * Does not update the time picker.
+     * @param hourOfDay
+     * @param minute
+     */
+    protected fun setHourMinute(hourOfDay: Int, minute: Int) {
+        if (dateSelectionMode == DateSelectionMode.NEXT24) {
+            selectedDate = getTimeWithinNext24Hours(hourOfDay, minute)
+        } else {
+            selectedDate[Calendar.HOUR_OF_DAY] = hourOfDay
+            selectedDate[Calendar.MINUTE] = minute
+        }
+    }
+
+    // TODO move to DateTimeUtil
+    /**
+     * Given an hour and minute, returns a date representing the next occurrence of this time within the next 24 hours. The seconds are set to 0, milliseconds become the value within the current second.
+     */
+    private fun getTimeWithinNext24Hours(hourOfDay: Int, minute: Int): Calendar {
+        val date = Calendar.getInstance()
+        date[Calendar.HOUR_OF_DAY] = hourOfDay
+        date[Calendar.MINUTE] = minute
+        date[Calendar.SECOND] = 0
+        // If the resulting date is in the past, the next day is meant
+        if (date.before(Calendar.getInstance())) {
+            date.add(Calendar.DAY_OF_MONTH, 1)
+        }
+        return date
+    }
+
+    /**
+     * Set the selected time to that of the given calendar, setting seconds to 0.
+     * Does not render the date/time display.
+     *
+     * @param calendar
+     */
+    protected fun setSelectedDateTime(calendar: Calendar) {
+        selectedDate.time = calendar.time
+        selectedDate[Calendar.SECOND] = 0 // We leave milliseconds as-is, as a little randomness in time is probably good
+    }
+
+    /**
+     * Set the selected and displayed date/time to that of the given calendar (seconds are set to 0).
+     * Also sets the [.dateSelectionMode] based on whether the selected time lies within the next 24 hours.
+     * Renders the result.
+     *
+     * @param calendar
+     */
+    protected fun setSelectedDateTimeAndSelectionMode(calendar: Calendar) {
+        setSelectedDateTime(calendar)
+
+        // Determine date selection mode based on the given date.
+        // Check whether the selected time is within the next 24 hours (i.e., decrementing it by one day would move it to the past).
+        decrementDate()
+        dateSelectionMode = if (selectedDate.before(Calendar.getInstance())) {
+            DateSelectionMode.NEXT24
+        } else {
+            DateSelectionMode.MANUAL
+        }
+        incrementDate()
+        updateTimePicker(calendar)
+        renderSelectedDate()
+    }
+
+    /**
+     * If the selected date is the current day, switch to NEXT24 mode and correct the date
+     * to the next day if the currently selected time is in the past (as by definition of
+     * NEXT24 mode).
+     *
+     * @return whether the selected date was the current day
+     */
+    private fun switchToNEXT24IfToday(): Boolean {
+        return if (DateTimeUtil.isToday(selectedDate.time)) {
+            dateSelectionMode = DateSelectionMode.NEXT24
+            if (selectedDate.before(Calendar.getInstance())) {
+                incrementDate()
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    private val diffSelectedDate: Int
+        /**
+         * Get the number of day changes between the current date and the selected date.
+         * If this number is greater than [Integer.MAX_VALUE], the return value is undefined.
+         *
+         * @return
+         */
+        get() = DateTimeUtil.dayChangesBetween(Calendar.getInstance(), selectedDate).toInt()
+
+    /**
+     * Set the selected date to the given year, month and day-of-month and render.
+     * If the chosen date is before the current day, do not set the date and show an error toast.
+     * If the chosen date is the current day, switch to NEXT24 mode, otherwise switch to MANUAL mode.
+     * When switching to NEXT24 mode and the selected time is in the past, correct the date to the
+     * next day (as per definition of NEXT24 mode).
+     *
+     * @param year
+     * @param month
+     * @param dayOfMonth
+     */
+    private fun setDateAction(year: Int, month: Int, dayOfMonth: Int) {
+        val newSelectedDate = Calendar.getInstance()
+        newSelectedDate[Calendar.YEAR] = year
+        newSelectedDate[Calendar.MONTH] = month
+        newSelectedDate[Calendar.DAY_OF_MONTH] = dayOfMonth
+        newSelectedDate[Calendar.HOUR_OF_DAY] = selectedDate[Calendar.HOUR_OF_DAY]
+        newSelectedDate[Calendar.MINUTE] = selectedDate[Calendar.MINUTE]
+        if (newSelectedDate.before(Calendar.getInstance()) && !DateTimeUtil.isToday(newSelectedDate.time)) {
+            Toast.makeText(this, R.string.add_reminder_toast_invalid_date, Toast.LENGTH_LONG).show()
+        } else { // newSelectedDate is today or any future day
+            setSelectedDateTime(newSelectedDate)
+            if (!switchToNEXT24IfToday()) {
+                dateSelectionMode = DateSelectionMode.MANUAL
+            }
+            renderSelectedDate()
+        }
+    }
+
+    /**
+     * Increment the date, set mode to MANUAL and render.
+     */
+    private fun incrementDateAction() {
+        dateSelectionMode = DateSelectionMode.MANUAL
+        incrementDate()
+        renderSelectedDate()
+    }
+
+    /**
+     * In MANUAL mode, decrement the date if it is not on the current day.
+     * If the resulting date is on the current day, switch to NEXT24 mode, and if it is in the past,
+     * increment it again to the next day (as per definition of NEXT24 mode).
+     * In NEXT24 mode this does not apply and is ignored. // TODO new: does sth.
+     * Renders the result.
+     */
+    private fun decrementDateAction() {
+        if (DateTimeUtil.isToday(selectedDate.time)) {
+            return
+        }
+        if (dateSelectionMode == DateSelectionMode.NEXT24) {
+            if (currentMatchedTimeInputEnd == 0) {
+                return
+            } else {
+                // The date is selected via text-based input and can be decremented;
+                // switch to manual mode by default (but to NEXT24 if it is today, see below).
+                dateSelectionMode = DateSelectionMode.MANUAL
+            }
+        }
+        decrementDate()
+        switchToNEXT24IfToday()
+        renderSelectedDate()
+    }
+
+    private fun incrementDate() {
+        selectedDate.add(Calendar.DAY_OF_MONTH, 1)
+    }
+
+    private fun decrementDate() {
+        selectedDate.add(Calendar.DAY_OF_MONTH, -1)
+    }
+
+    /**
+     * Display day and month of [.selectedDate] in [.dateDisplay] and the number of calendar days
+     * this date lies ahead. If [.dateSelectionMode] is [DateSelectionMode.MANUAL], show
+     * everything in orange, otherwise show the "+1" (for "one day ahead" if applicable) in accent color.
+     */
+    private fun renderSelectedDate() {
+        val diff = diffSelectedDate
+        var sDiff = ""
+        if (diff != 0) {
+            sDiff += " (+$diff)"
+        }
+        val spBase = SpannableString(DateTimeUtil.formatDate(this, selectedDate.time))
+        val spDiff = SpannableString(sDiff)
+        fun setDiffColor(colorId: Int?) {
+            spDiff.setSpan(
+                ForegroundColorSpan(
+                    resources.getColor(
+                        colorId!!
+                    )
+                ), 0, spDiff.length, 0
+            )
+        }
+
+        if (currentMatchedTimeInputEnd != 0 && currentTimeMatch?.isRelative == true) {
+            setDiffColor(R.color.green)
+        } else if (dateSelectionMode == DateSelectionMode.MANUAL) {
+            spBase.setSpan(ForegroundColorSpan(resources.getColor(R.color.orange)), 0, spBase.length, 0)
+            setDiffColor(R.color.orange)
+        } else if (dateSelectionMode == DateSelectionMode.NEXT24) {
+            if (diff > 1) {
+                // It must come from a text-base match, so color accordingly
+                setDiffColor(R.color.green)
+            } else {
+                setDiffColor(R.color.colorAccent)
+            }
+        }
+        dateDisplay.text = SpannableStringBuilder().append(spBase).append(spDiff)
+    }
+
+    private fun showChooseNaggingRepeatIntervalDialog() {
+        val inflater = layoutInflater
+        val dialogView = inflater.inflate(R.layout.dialog_number_picker, null)
+        val naggingRepeatIntervalNumberPicker = dialogView.findViewById<NumberPicker>(R.id.numberPicker)
+        naggingRepeatIntervalNumberPicker.minValue = 1
+        naggingRepeatIntervalNumberPicker.maxValue = Int.MAX_VALUE
+        naggingRepeatIntervalNumberPicker.wrapSelectorWheel = false
+        naggingRepeatIntervalNumberPicker.value = naggingRepeatInterval
+        AlertDialog.Builder(this, R.style.dialog_narrow)
+            .setView(dialogView)
+            .setTitle(R.string.dialog_choose_repeat_interval_title)
+            .setPositiveButton(android.R.string.ok) { _: DialogInterface?, _: Int ->
+                naggingRepeatInterval = naggingRepeatIntervalNumberPicker.value
+                // Show the toast about the set nagging repeat interval (also when nagging was already enabled)
+                showToastNaggingRepeatInterval()
+                naggingSwitch.isChecked = true // Note: this does not trigger the on-cilck listener.
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showToastNaggingRepeatInterval() {
+        Toast.makeText(
+            this@ReminderDialogActivity,
+            getString(R.string.add_reminder_toast_nagging_enabled, DateTimeUtil.formatMinutes(naggingRepeatInterval.toLong(), this)),
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+
+    /**
+     * Get the currently typed reminder text, where a time specification is removed, including a potential following space.
+     * @return
+     */
+    protected fun getCurrentReminderText(): String {
+        var text = nameTextView.text.toString()
+        if (currentMatchedTimeInputEnd != 0) {
+            text = text.substring(currentMatchedTimeInputEnd)
+            if (text.isNotEmpty() && text[0] == ' ') {
+                text = text.substring(1)
+            }
+        }
+        return text
+    }
+
+    protected fun buildReminderWithTimeTextNagging(): Reminder.Builder {
+        val reminderBuilder = builder(
+            selectedDate.time,
+            getCurrentReminderText()
+        )
+        if (naggingSwitch.isChecked) {
+            reminderBuilder.naggingRepeatInterval = naggingRepeatInterval
+        }
+        return reminderBuilder
+    }
+
+    protected fun setAddButtonText(@StringRes textRes: Int) {
+        addButton.setText(textRes)
+    }
+
+    /**
+     * Action to be executed on hitting the main "Add" or "OK" button.
+     */
+    protected abstract fun onDone()
+    protected fun makeToast(reminder: Reminder) {
+        // Create relative description of due date
+        val now = Calendar.getInstance()
+        val toastText: String
+        if (reminder.calendar.before(now)) { // This is a rare case / does not happen in a usual use case.
+            toastText = getString(R.string.add_reminder_toast_due_in_past)
+        } else {
+            val relativeDueDate: String
+            val durationUntilDue = DateTimeUtil.daysHoursMinutesBetween(now, reminder.calendar)
+            relativeDueDate = if (durationUntilDue.isZero) {
+                // This happens when the reminder is due in less than a minute, as the seconds were cut off.
+                getString(R.string.duration_less_than_a_minute)
+            } else {
+                // Note that the string cannot be empty when the duration is not zero with the chosen rounding (either their is at least one day, or at least one minute or hour).
+                durationUntilDue.toString(
+                    DateTimeUtil.Duration.Resolution.MINUTES_IF_0_DAYS,
+                    DateTimeUtil.Duration.RoundingMode.CLOSEST,
+                    this
+                )
+            }
+            toastText = if (reminder.isNagging) {
+                getString(R.string.add_reminder_toast_due_nagging, relativeDueDate)
+            } else {
+                getString(R.string.add_reminder_toast_due, relativeDueDate)
+            }
+        }
+        val duration = Toast.LENGTH_LONG
+        val toast = Toast.makeText(this, toastText, duration)
+        toast.show()
+    }
+
+    /**
+     * Finish the activity with RESULT_OK, removing the task on Lollipop and above.
+     */
+    protected fun completeActivity() {
+        setResult(RESULT_OK)
+        finishAndRemoveTask() // Adding the reminder completes this task, the dialog should not stay under recent tasks.
+    }
+
+    /**
+     * Adapt the time picker layout according to user's set preferences.
+     */
+    private fun adaptTimePickerLayout() {
+        // Removing the whole layout with the toggle button if disabled by user
+        //noinspection DiscouragedApi (have to access the internal system resources by name)
+        if (!Prefs.getBooleanPref(R.string.prefkey_reminder_dialog_timepicker_show_keyboard_button, true, this)) {
+            val toggleButton = timePicker.findViewById<View>(Resources.getSystem().getIdentifier("toggle_mode", "id", "android"))
+            (toggleButton?.parent as? ViewGroup)
+                ?.let { toggleButtonLayout ->
+                    (toggleButtonLayout.parent as? ViewGroup)
+                        ?.let { timePickerRootLayout ->
+                            // Remove all views related to the toggle button
+
+                            timePickerRootLayout.removeView(toggleButtonLayout)
+
+                            timePickerRootLayout.removeView(
+                                timePickerRootLayout.findViewById(
+                                    Resources.getSystem().getIdentifier("input_header", "id", "android")
+                                )
+                            )
+
+                            timePickerRootLayout.removeView(
+                                timePickerRootLayout.findViewById(
+                                    Resources.getSystem().getIdentifier("input_mode", "id", "android")
+                                )
+                            )
+                        }
+                }
+        }
+
+        // Adapting sizes of time display and clock if enabled
+        //noinspection DiscouragedApi (have to access the internal system resources by name)
+        if (Prefs.getBooleanPref(R.string.prefkey_reminder_dialog_timepicker_customize_size, false, this)) {
+            // Changing the height of the time display by changing the font size
+            timePicker.findViewById<View>(
+                Resources.getSystem().getIdentifier("time_header", "id", "android")
+            )?.let { timeHeader ->
+                // Adapting the size of all text in the time header (also the AM/PM labels in 12-hour mode).
+                // Note that the numbers also serve as buttons to switch between hour and minute selection.
+
+                // In default resource: 60dp
+                val timeHeaderTextSize = TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP,
+                    Prefs.getReminderDialogTimePickerTextSize(this).toFloat(),
+                    resources.displayMetrics
+                )
+
+                // In default resource: 16dp (smaller than [timeHeaderTextSize] by a factor of 3.75)
+                val textSizeAmPmLabel = TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP,
+                    Prefs.getReminderDialogTimePickerTextSize(this).toFloat() / 3.75f,
+                    resources.displayMetrics
+                )
+
+                timeHeader.findViewById<TextView>(Resources.getSystem().getIdentifier("hours", "id", "android"))
+                    ?.let { it.textSize = timeHeaderTextSize }
+                timeHeader.findViewById<TextView>(Resources.getSystem().getIdentifier("minutes", "id", "android"))
+                    ?.let { it.textSize = timeHeaderTextSize }
+                timeHeader.findViewById<TextView>(Resources.getSystem().getIdentifier("separator", "id", "android"))
+                    ?.let { it.textSize = timeHeaderTextSize }
+                timeHeader.findViewById<RadioButton>(Resources.getSystem().getIdentifier("am_label", "id", "android"))
+                    ?.let { it.textSize = textSizeAmPmLabel }
+                timeHeader.findViewById<RadioButton>(Resources.getSystem().getIdentifier("pm_label", "id", "android"))
+                    ?.let { it.textSize = textSizeAmPmLabel }
+
+                // Making the height adapt to the changed font size (however, MATCH_PARENT also seems to work)
+                // Note: This expects a LinearLayout.LayoutParams despite the parameter type
+                timeHeader.layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+
+                val layoutParams = timeHeader.layoutParams as LinearLayout.LayoutParams
+                layoutParams.bottomMargin =
+                    16 // 16dp is used both as bottom of time header layout and top of time picker, but 16 in total is more symmetric
+            }
+
+            // Changing the height of the TimePicker
+            timePicker.findViewById<View>(
+
+                Resources.getSystem().getIdentifier("radial_picker", "id", "android")
+            )?.let { radialTimePicker ->
+                // Note: This expects a LinearLayout.LayoutParams despite the parameter type
+                radialTimePicker.layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    TypedValue.applyDimension(
+                        TypedValue.COMPLEX_UNIT_DIP,
+                        Prefs.getReminderDialogTimePickerHeight(this).toFloat(),
+                        resources.displayMetrics
+                    ).toInt()
+                )
+            }
+        }
+    }
+}
