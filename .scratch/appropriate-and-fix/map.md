@@ -33,7 +33,7 @@ Whichever route, do the bookkeeping by hand afterwards: set `Status: resolved` o
 **Working conventions** (adopted from `../Loquace/CLAUDE.md`, trimmed to a single-module app):
 - Plain language, no invented jargon. Name things by what they do.
 - A ticket must fit one fresh agent at low context. If it looks bigger, split it first.
-- Code changes happen in short-lived worktrees, one ticket each, never directly on `develop`.
+- **One long-lived branch: `main`.** Code changes happen in short-lived worktrees on ticket branches, one ticket each, merged back with `--no-ff`. Releases are marked by tags, not by a branch.
 - Commit trailer names the model that actually wrote the code: `Co-authored-by: Opus 5 <noreply@anthropic.com>`. A non-Anthropic model uses its own name and vendor no-reply address.
 
 ### Settled while charting
@@ -43,6 +43,7 @@ These are the answers that fixed the destination. They are not tickets and were 
 - **Scope** — bounded first milestone. Repo is ours, gate is green, every review finding fixed or ruled out. Features are a later map.
 - **Name** — **Ding**. `applicationId` and `namespace` both become `app.ding`, matching the `app.loquace` house style. The GitHub repo and this working directory get renamed too.
 - **Hard fork** — upstream is never merged again. Anything interesting gets cherry-picked by hand. This is what buys the freedom to raise `minSdk` and restructure at will.
+- **Single trunk** — upstream's git-flow `develop`/`main` split is retired. It cost a second merge per release and bought nothing for a single maintainer publishing via GitHub releases.
 - **Distribution** — public GitHub releases, built so F-Droid stays cheap later. Not the Play Store.
 - **Bug-fix depth** — both the bounded fixes and the structural ones, but structural work makes its *decisions* here and its code in follow-on tickets. Room migration is out of scope.
 - **CI** — GitHub Actions on the existing public GitHub remote. Free and unlimited for public repos, and the hosted runners ship the Android SDK, which avoids the ~200 lines of SDK bootstrap the self-hosted Forgejo runner needs. The workflow file stays portable if this changes.
@@ -54,6 +55,7 @@ These are the answers that fixed the destination. They are not tickets and were 
 <!-- one line per closed ticket: gist + link -->
 
 - [Stop publishing a personal email address in commit metadata](issues/01-git-identity-no-reply-address.md) — repo-local `user.email` set to `68194446+jmnicolas90@users.noreply.github.com`, real name kept; verified in an actual commit object. Done before the first commit, so no history rewrite. Commits are now safe to push publicly.
+- **Collapsed to a single trunk, `main`.** Upstream ran git-flow, and the two branches were not merely integration versus release: they carried different build identities (`develop` = `felixwiemuth.simplereminder.dev`, `main` = upstream's production `felixwiemuth.simplereminder`), with the release channel encoded in the branch. Merging took `main`'s side silently; the fork's own `.dev` identity was restored on top. The `v0.9.x` tags stay in the trunk's ancestry, which is why `main` was kept rather than `develop`.
 - [Raise minSdk to 31](issues/02-raise-minsdk-to-31.md) — `minSdkVersion 31`, ~190 lines of pre-31 branches deleted, including the notification priority/sound settings that Android 8 had already made inert. Lint is now clean, so the `NewApi` finding on `QuickTileService` is closed. `targetSdk` untouched (ticket 17).
 
 ## Not yet specified

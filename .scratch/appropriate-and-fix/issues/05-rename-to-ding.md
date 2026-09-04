@@ -22,4 +22,6 @@ Keep the GPL copyright headers exactly as they are. They are Felix Wiemuth's and
 
 The `.dev` suffix on the old `applicationId` came from upstream's release-channel scheme in `app/build.gradle`. Decide whether Ding keeps that scheme or drops it for a plain `app.ding`; the version-code arithmetic above it is built around the channel digit, so dropping it means simplifying that too.
 
+Note (added when the fork collapsed to a single trunk): half of that scheme is already gone. Upstream encoded the channel in the *branch* — `develop` built `.dev`, `main` built the production ID — and there is only one branch now. So the choice is no longer "keep upstream's scheme"; it is whether Ding needs more than one build identity at all, and if it does, that has to become a build type or product flavour rather than a branch.
+
 **Done when** the gate is green, `grep -ri simplereminder` returns only GPL headers and deliberate historical references, and a debug APK installs as Ding.
