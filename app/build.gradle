@@ -150,7 +150,15 @@ dependencies {
 // depends on it, and it has nothing to do with Play Services.
 def bannedDependencyGroups = ['com.google.android.gms', 'com.google.firebase'] as Set
 def bannedDependencyModuleFragment = 'play-services'
-def guardedConfigurations = ['debugRuntimeClasspath', 'releaseRuntimeClasspath']
+
+// Collected from the variant API rather than hard-coded to debug and release, so
+// that a build type or product flavour added later is guarded the day it
+// appears. "May never enter the graph" is not a constraint that should depend on
+// someone remembering to extend a list.
+def guardedConfigurations = []
+androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+    guardedConfigurations.add(variant.runtimeConfiguration.name)
+}
 
 tasks.register('checkNoGoogleDependencies') {
     group = 'verification'
@@ -163,6 +171,13 @@ tasks.register('checkNoGoogleDependencies') {
     }
 
     doLast {
+        // A guard that inspects nothing passes everything. If the variant API
+        // ever hands back an empty list, that has to be loud rather than green.
+        if (dependencyGraphs.isEmpty()) {
+            throw new GradleException("checkNoGoogleDependencies found no variant runtime"
+                    + " classpath to inspect, so it checked nothing. Fix the guard.")
+        }
+
         def offenders = new TreeSet<String>()
 
         dependencyGraphs.each { configurationName, rootComponent ->

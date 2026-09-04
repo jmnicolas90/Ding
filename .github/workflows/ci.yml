@@ -2,7 +2,18 @@ name: CI
 
 on:
   push:
+    # Every branch, because ticket branches have to be green before they merge
+    # back to main — but not tags: a release tag points at a commit the gate has
+    # already passed on, and re-running it there proves nothing.
+    tags-ignore: ["**"]
   pull_request:
+
+# A branch that has a PR open fires both triggers. Rather than drop one and lose
+# either ticket-branch coverage or PR coverage, let both fire and cancel runs
+# that a newer push has already superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 # One job, run in the same order as scripts/check.sh. Splitting the stages into
 # parallel jobs would make each one re-run Gradle configuration and re-build the
@@ -13,16 +24,19 @@ jobs:
     name: Gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      # The ticket specified @v4; this workflow's own first CI run annotated it
+      # as deprecated, along with the Node 20 runtime it and the two actions
+      # around it target. Bumped to the current majors on that evidence.
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           # Matches the sourceCompatibility/targetCompatibility in
           # app/build.gradle. If those move, move this with them.
           java-version: "21"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
 
       # No Android SDK bootstrap step: the GitHub `ubuntu-latest` image ships
       # one, including the platforms/android-36 that compileSdk 36 needs. That
@@ -30,8 +44,10 @@ jobs:
       # this workflow ever has to move to the self-hosted Forgejo runner, add
       # an SDK install step here and the rest carries over unchanged.
 
+      # Both variants: the ticket's own argument for a separate release APK step —
+      # that release-only breakage is invisible to a debug gate — applies to lint.
       - name: Lint
-        run: ./gradlew :app:lintDebug
+        run: ./gradlew :app:lintDebug :app:lintRelease
 
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest
@@ -44,18 +60,10 @@ jobs:
       - name: Debug APK
         run: ./gradlew :app:assembleDebug
 
-      # Its own step because the release build runs R8 for real, while the debug
-      # build is debuggable and so skips optimization and obfuscation even with
-      # minifyEnabled on. A broken ProGuard rule is invisible until here.
+      # Its own step, though not for the reason the ticket gave: both build types
+      # set minifyEnabled with the same proguardFiles, so the debug step already
+      # exercises the keep rules. What the debug build skips, being debuggable,
+      # is R8's optimization and obfuscation passes — and only breakage from
+      # those is invisible until here.
       - name: Release APK
         run: ./gradlew :app:assembleRelease
-
-      # Lint's HTML/XML report is the only useful artifact when the gate goes
-      # red on a machine nobody can log into.
-      - name: Upload lint report
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lint-report
-          path: app/build/reports/lint-results-debug.*
-          if-no-files-found: ignore
