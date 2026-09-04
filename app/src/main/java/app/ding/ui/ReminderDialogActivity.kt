@@ -345,6 +345,15 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
     }
 
     /**
+     * The due time the pickers currently hold, in epoch milliseconds. The edit dialog
+     * reads it right after restoring a reminder, so that "the user did not touch the
+     * time" is compared against the value the pickers actually took rather than against
+     * the stored date before the pickers rounded its seconds off.
+     */
+    protected val selectedDueTime: Long
+        get() = selectedDate.timeInMillis
+
+    /**
      * Set the selected time to that of the given calendar, setting seconds to 0.
      * Does not render the date/time display.
      *

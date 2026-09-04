@@ -52,8 +52,10 @@ reminder id, except Add, which creates one.
 | `Delete` | – | List |
 | `Reconcile` | – (applies to every stored reminder) | Application start |
 
-Which of `Edit` or `Reschedule` the edit dialog issues for each starting
-state is ticket 11's decision. The model only fixes what each command means.
+Which of `Edit` or `Reschedule` the edit dialog issues is decided by the due
+time, in every starting state (ticket 11). The dialog opens on the reminder's
+stored due time whatever its state; leaving it alone is an `Edit`, moving it is
+a `Reschedule`.
 
 ## Transition function
 
@@ -108,7 +110,8 @@ always `Unchanged` with no effects: it is not an error.
 | MarkDone | `DONE` | – | Unchanged | CancelAlarm; CancelNotification |
 | Reschedule | any | new due > now | Updated, `SCHEDULED` with new due, text, nag | CancelNotification; SetAlarm(new due, Deliver) |
 | Reschedule | any | new due ≤ now | Refused(PastDue) | – |
-| Edit | `SCHEDULED` | – | Updated, same state | – |
+| Edit | `SCHEDULED` | due > now | Updated, same state | – |
+| Edit | `SCHEDULED` | due ≤ now | Updated, same state | SetAlarm(due, Deliver) |
 | Edit | `NOTIFIED` | – | Updated, same state | ShowNotification(Reshow); SetAlarm(nextNag(now), Nag) if nagging, else CancelAlarm |
 | Edit | `DONE` | – | Updated, same state | – |
 | Delete | any | – | Removed | CancelAlarm; CancelNotification |
@@ -122,9 +125,15 @@ always `Unchanged` with no effects: it is not an error.
 after now, counted from the original due time. A delayed nag therefore
 never replays the occurrences it missed. The interval bound is ticket 14.
 
-An Edit on a `SCHEDULED` reminder has no effects because the alarm payload
-carries only the id and the due time; text and nag settings are read from
-the store when the alarm fires.
+An Edit on a `SCHEDULED` reminder still ahead of now has no effects because the
+alarm payload carries only the id and the due time; text and nag settings are
+read from the store when the alarm fires. The one exception is a `SCHEDULED`
+reminder already past due, whose delivery has not happened yet: there the Edit
+puts the Deliver alarm back. That is what makes invariant 1 hold after every
+command rather than only after Add, Reschedule and Reconcile — the unguarded row
+contradicted it for that case (ticket 11). An alarm set for a past time fires at
+once, so the delivery happens then instead of waiting for the next Reconcile, and
+the status guard means it still happens only once.
 
 ## The stale-alarm rule
 
@@ -220,6 +229,13 @@ After any command completes, and after Reconcile:
 4. For a given (id, due time), Deliver alerts at most once, regardless of
    how many alarms or Reconciles arrive.
 5. `status` and due time change only through the transition function.
+
+Invariant 1 lives in the transition function, not in any dialog. Add and
+Reschedule are the only commands that write a due time and both refuse one that
+is not in the future, so a `SCHEDULED` reminder past due can only be one whose
+delivery has not happened yet; every other row either leaves the due time alone
+or puts the Deliver alarm back. A dialog therefore never has to check the time
+before saving — it only reports `Refused(PastDue)` to the user.
 
 ## Recurrence (deferred)
 

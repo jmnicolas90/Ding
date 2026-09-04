@@ -178,6 +178,106 @@ class ReminderTransitionTest : FunSpec({
         }
     }
 
+    test("8. an edit that leaves the due time alone keeps the state in each of the three states") {
+        for (status in Status.entries) {
+            // Each state with a due time it plausibly has: ahead for a scheduled
+            // reminder, behind for one that has been delivered or finished.
+            val dueTime = if (status == Status.SCHEDULED) NOW + HOUR else NOW - 25 * MINUTE
+            val stored = reminder(dueTime = dueTime, status = status, naggingRepeatInterval = 10)
+
+            val result =
+                transition(stored, ReminderCommand.Edit(ID, "Water the ferns", 10), NOW)
+
+            withClue(status.toString()) {
+                val edited = (result.outcome as TransitionOutcome.Updated).reminder
+                edited.status shouldBe status
+                edited.date shouldBe Date(dueTime)
+                edited.text shouldBe "Water the ferns"
+                edited.naggingRepeatInterval shouldBe 10
+                result.effects shouldBe when (status) {
+                    // The notification is on screen and has to show the new text; the
+                    // nag alarm is reset because the settings it was set from changed.
+                    Status.NOTIFIED -> listOf(
+                        ReminderEffect.ShowNotification(edited, NotificationKind.RESHOW),
+                        ReminderEffect.SetAlarm(ID, NOW + 5 * MINUTE, AlarmKind.NAG, dueTime)
+                    )
+                    // A scheduled reminder still ahead keeps the Deliver alarm it has,
+                    // and a done reminder keeps its empty slot: nothing to do.
+                    Status.SCHEDULED, Status.DONE -> emptyList()
+                }
+            }
+        }
+    }
+
+    test("9. an edit that turns nagging off empties a notified reminder's alarm slot") {
+        val dueTime = NOW - 25 * MINUTE
+        val stored = reminder(dueTime = dueTime, status = Status.NOTIFIED, naggingRepeatInterval = 10)
+
+        val result = transition(stored, ReminderCommand.Edit(ID, "Water the plants", 0), NOW)
+
+        val edited = (result.outcome as TransitionOutcome.Updated).reminder
+        edited.status shouldBe Status.NOTIFIED
+        edited.isNagging shouldBe false
+        result.effects shouldBe listOf(
+            ReminderEffect.ShowNotification(edited, NotificationKind.RESHOW),
+            ReminderEffect.CancelAlarm(ID)
+        )
+    }
+
+    test("an edit never leaves a scheduled reminder whose due time has passed without a delivery") {
+        // The invariant is that a scheduled reminder has a Deliver alarm for its due
+        // time. Editing one that is already past due and not yet delivered puts the
+        // alarm back rather than waiting for the next reconciliation.
+        val dueTime = NOW - MINUTE
+        val stored = reminder(dueTime = dueTime, status = Status.SCHEDULED)
+
+        val result = transition(stored, ReminderCommand.Edit(ID, "Water the ferns", 0), NOW)
+
+        val edited = (result.outcome as TransitionOutcome.Updated).reminder
+        edited.status shouldBe Status.SCHEDULED
+        edited.date shouldBe Date(dueTime)
+        result.effects shouldBe
+            listOf(ReminderEffect.SetAlarm(ID, dueTime, AlarmKind.DELIVER, dueTime))
+    }
+
+    test("the edit dialog asks for an edit when the due time is untouched and a reschedule when it moved") {
+        editOrReschedule(ID, NOW + HOUR, NOW + HOUR, "Water the ferns", 10) shouldBe
+            ReminderCommand.Edit(ID, "Water the ferns", 10)
+
+        editOrReschedule(ID, NOW + HOUR, NOW + 2 * HOUR, "Water the ferns", 10) shouldBe
+            ReminderCommand.Reschedule(ID, NOW + 2 * HOUR, "Water the ferns", 10)
+    }
+
+    test("saving a notified or done reminder with the time untouched no longer schedules it in the past") {
+        // The reported bug: the dialog opened a notified or done reminder on the current
+        // minute instead of its stored due time, so pressing OK asked for a reschedule to
+        // a minute that had normally already passed. The dialog now restores the stored
+        // due time, so an untouched save is an edit and the state survives it.
+        for (status in listOf(Status.NOTIFIED, Status.DONE)) {
+            val stored = reminder(dueTime = NOW - HOUR, status = status)
+
+            val command = editOrReschedule(
+                reminderId = ID,
+                dueTimeWhenOpened = stored.date.time,
+                chosenDueTime = stored.date.time,
+                text = "Water the ferns",
+                naggingRepeatInterval = 0
+            )
+            val result = transition(stored, command, NOW)
+
+            withClue(status.toString()) {
+                val saved = (result.outcome as TransitionOutcome.Updated).reminder
+                saved.status shouldBe status
+                saved.date shouldBe stored.date
+                saved.text shouldBe "Water the ferns"
+                // Nothing put a Deliver alarm in the slot, which is what the old path did
+                // by re-arming a reminder that was already dealt with.
+                result.effects.filterIsInstance<ReminderEffect.SetAlarm>()
+                    .filter { it.kind == AlarmKind.DELIVER } shouldBe emptyList()
+            }
+        }
+    }
+
     test("10. every command on a reminder the store does not hold is cleanup") {
         val commands = listOf(
             ReminderCommand.Deliver(ID, NOW),

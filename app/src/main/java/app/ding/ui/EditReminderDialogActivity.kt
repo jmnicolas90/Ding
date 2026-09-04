@@ -25,9 +25,8 @@ import app.ding.R
 import app.ding.ReminderManager
 import app.ding.ReminderStorage.ReminderNotFoundException
 import app.ding.ReminderStorage.getReminder
-import app.ding.data.Reminder
-import app.ding.state.ReminderCommand
 import app.ding.state.TransitionOutcome
+import app.ding.state.editOrReschedule
 
 /**
  * Shows a dialog allowing to edit a reminder. Finishes with [.RESULT_OK] if the reminder has been edited.
@@ -42,10 +41,10 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
     private var reminderToUpdate = -1
 
     /**
-     * The due time the reminder had when the dialog opened, which is what tells an
-     * edit (same due time) from a reschedule (a different one).
+     * The due time the pickers were restored to when the dialog opened, which is what
+     * tells an edit (same due time) from a reschedule (a different one).
      */
-    private var dueTimeOfReminderToUpdate = 0L
+    private var dueTimeWhenOpened = 0L
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setTitle(R.string.edit_reminder_title)
@@ -76,16 +75,18 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
             val reminder = getReminder(this, reminderId)
             setTextMovingCursorToEnd(reminder.text)
 
-            // For scheduled reminders, set the selected time to the due date, otherwise leave it at the current time
-            if (reminder.status == Reminder.Status.SCHEDULED) {
-                setSelectedDateTimeAndSelectionMode(reminder.calendar)
-            }
+            // Restore the stored due time whatever the reminder's state. Only a
+            // scheduled reminder used to get it back; a notified or done one kept the
+            // minute the dialog happened to open on, so pressing OK without touching
+            // the time read as a reschedule to a minute that had normally already
+            // passed. The restored value is what "untouched" is compared against below.
+            setSelectedDateTimeAndSelectionMode(reminder.calendar)
             naggingSwitch.isChecked = reminder.isNagging
             if (reminder.isNagging) {
                 naggingRepeatInterval = reminder.naggingRepeatInterval
             }
             reminderToUpdate = reminderId
-            dueTimeOfReminderToUpdate = reminder.date.time
+            dueTimeWhenOpened = selectedDueTime
         } catch (e: ReminderNotFoundException) {
             Log.w("AddReminder", "Intent contains invalid reminder ID.")
             Toast.makeText(this, R.string.error_msg_reminder_not_found, Toast.LENGTH_LONG).show()
@@ -95,24 +96,16 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
 
     override fun onDone() {
         val reminderBuilder = buildReminderWithTimeTextNagging()
-        val dueTime = reminderBuilder.date.time
-        // The due time decides the command: unchanged is an edit, which leaves the state
-        // and the alarm alone; changed is a reschedule, which re-arms from any state.
-        // The finer cases are ticket 11's.
-        val command = if (dueTime == dueTimeOfReminderToUpdate) {
-            ReminderCommand.Edit(
-                reminderToUpdate,
-                reminderBuilder.text,
-                reminderBuilder.naggingRepeatInterval
-            )
-        } else {
-            ReminderCommand.Reschedule(
-                reminderToUpdate,
-                dueTime,
-                reminderBuilder.text,
-                reminderBuilder.naggingRepeatInterval
-            )
-        }
+        // The due time decides the command: left alone it is an edit, which changes only
+        // text and nag settings and never the state; moved it is a reschedule, which
+        // re-arms the reminder from any state and needs a time in the future.
+        val command = editOrReschedule(
+            reminderId = reminderToUpdate,
+            dueTimeWhenOpened = dueTimeWhenOpened,
+            chosenDueTime = reminderBuilder.date.time,
+            text = reminderBuilder.text,
+            naggingRepeatInterval = reminderBuilder.naggingRepeatInterval
+        )
         when (val outcome = ReminderManager.run(this, command)) {
             is TransitionOutcome.Updated -> {
                 makeToast(outcome.reminder)
