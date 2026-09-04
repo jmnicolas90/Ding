@@ -17,3 +17,10 @@ Getting this wrong in either direction is bad: erasing upstream is a licence vio
 Note the upstream "Planned features" list is worth **preserving somewhere** before deleting it from the README — it is a strong first draft of the feature map that comes after this one.
 
 **Done when** a stranger landing on the repo understands what Ding is, that it descends from SimpleReminder, and under what licence — without any live link to upstream's issue tracker as though it were ours.
+
+Note (added by ticket 03): fork-authored files now exist that upstream never had — `scripts/check.sh`
+and `.github/workflows/ci.yml`. `CONTRIBUTING.md` requires the project copyright header on every new
+file, but that header names Felix Wiemuth and 2018-2025, which is not true of these. Every existing
+`.sh` and `.yml` in the repo carries no header at all, so the rule has only ever been honoured for
+Gradle files. Decide the copyright line for fork-authored files here, then apply it to those two.
+

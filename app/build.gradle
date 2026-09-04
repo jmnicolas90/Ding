@@ -100,6 +100,15 @@ android {
         }
     }
 
+    // The lint gate fails on errors, not on warnings. There are pre-existing
+    // warnings in this codebase; making them fatal is a cleanup campaign, and
+    // holding the gate hostage to it would mean the gate never gets switched on
+    // at all. Flip `warningsAsErrors` once that backlog is empty.
+    lint {
+        abortOnError true
+        warningsAsErrors false
+    }
+
     namespace 'felixwiemuth.simplereminder'
 }
 
@@ -126,4 +135,89 @@ dependencies {
     testImplementation "io.kotest:kotest-framework-engine:$kotest_version"
     testImplementation "io.kotest:kotest-assertions-core:$kotest_version"
     testImplementation "io.kotest:kotest-runner-junit5:$kotest_version"
+}
+
+// ---------------------------------------------------------------------------
+// Google-dependency guard
+// ---------------------------------------------------------------------------
+// The app must keep working on a de-Googled OS (GrapheneOS with no Play Services,
+// sandboxed or otherwise), so nothing on the runtime classpath may pull in Play
+// Services or Firebase — including transitively, which is how it would actually
+// happen.
+//
+// Match on group coordinates, never on the string "google":
+// `com.google.android.material` is AndroidX Material Components, this app already
+// depends on it, and it has nothing to do with Play Services.
+def bannedDependencyGroups = ['com.google.android.gms', 'com.google.firebase'] as Set
+def bannedDependencyModuleFragment = 'play-services'
+
+// Collected from the variant API rather than hard-coded to debug and release, so
+// that a build type or product flavour added later is guarded the day it
+// appears. "May never enter the graph" is not a constraint that should depend on
+// someone remembering to extend a list.
+def guardedConfigurations = []
+androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+    guardedConfigurations.add(variant.runtimeConfiguration.name)
+}
+
+tasks.register('checkNoGoogleDependencies') {
+    group = 'verification'
+    description = 'Fails if the runtime classpath pulls in Play Services or Firebase.'
+
+    // Resolve the whole dependency graph, not just the first level: the point of
+    // the guard is to catch what an innocent-looking dependency drags in behind it.
+    def dependencyGraphs = guardedConfigurations.collectEntries { name ->
+        [(name): configurations.named(name).flatMap { it.incoming.resolutionResult.rootComponent }]
+    }
+
+    doLast {
+        // A guard that inspects nothing passes everything. If the variant API
+        // ever hands back an empty list, that has to be loud rather than green.
+        if (dependencyGraphs.isEmpty()) {
+            throw new GradleException("checkNoGoogleDependencies found no variant runtime"
+                    + " classpath to inspect, so it checked nothing. Fix the guard.")
+        }
+
+        def offenders = new TreeSet<String>()
+
+        dependencyGraphs.each { configurationName, rootComponent ->
+            def visited = new HashSet<String>()
+            def pending = new ArrayDeque<ResolvedComponentResult>()
+            pending.add(rootComponent.get())
+
+            while (!pending.isEmpty()) {
+                def component = pending.poll()
+                if (!visited.add(component.id.displayName)) {
+                    continue
+                }
+
+                def id = component.id
+                if (id instanceof ModuleComponentIdentifier
+                        && (bannedDependencyGroups.contains(id.group)
+                            || id.module.contains(bannedDependencyModuleFragment))) {
+                    offenders.add("  $id.group:$id.module:$id.version  (in $configurationName)".toString())
+                }
+
+                component.dependencies.each { dependency ->
+                    if (dependency instanceof ResolvedDependencyResult) {
+                        pending.add(dependency.selected)
+                    }
+                }
+            }
+        }
+
+        if (!offenders.isEmpty()) {
+            throw new GradleException(
+                    "Google Play Services / Firebase dependencies are not allowed:\n"
+                            + offenders.join("\n")
+                            + "\n\nThis app has to run on a de-Googled OS. Find a replacement, or"
+                            + "\nchange this rule deliberately in app/build.gradle.")
+        }
+    }
+}
+
+// Wire the guard into the standard lifecycle so it is not only enforced by the
+// scripts that happen to remember to call it.
+tasks.named('check') {
+    dependsOn 'checkNoGoogleDependencies'
 }
