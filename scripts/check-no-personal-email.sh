@@ -31,8 +31,8 @@
 #     carries an address today; they are allowed anyway because attribution is
 #     the one case where an address would be legitimate rather than a leak.
 #   - app/src/main/assets/open_source_licenses.html — generated from LICENSE.md
-#     by generateOpenSourceLicensesFile.sh, so it can only ever carry what
-#     LICENSE.md already carries.
+#     by scripts/generate-open-source-licenses.sh, so it can only ever carry
+#     what LICENSE.md already carries.
 #   - any address containing "noreply" — the GitHub and vendor no-reply
 #     addresses that commits and co-author trailers are signed with.
 # The GPL copyright headers are deliberately NOT allowlisted: they carry names,
