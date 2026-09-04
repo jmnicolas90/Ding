@@ -85,6 +85,16 @@ debuggable and therefore skips R8's optimization and obfuscation passes, so
 release-only breakage is invisible until that stage. The first run in a
 fresh worktree is slow (several minutes); later runs are much faster.
 
+Not every script under `scripts/` is a gate.
+`scripts/generate-open-source-licenses.sh` regenerates the in-app licences
+page, `app/src/main/assets/open_source_licenses.html`, from the "Included
+work" section of `LICENSE.md`. Run it by hand whenever that section changes
+and commit the result; nothing runs it for you. It needs `pandoc 3.11`
+specifically — the version is pinned in the script because different pandoc
+versions render the same markdown differently — and it is not installed by
+default. The script checks the version and tells you how to install that
+exact one user-locally when it is missing or wrong.
+
 ## Working conventions
 
 - **Plain language, no invented jargon.** Name things by what they do. No
