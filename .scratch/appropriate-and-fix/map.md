@@ -54,6 +54,7 @@ These are the answers that fixed the destination. They are not tickets and were 
 <!-- one line per closed ticket: gist + link -->
 
 - [Stop publishing a personal email address in commit metadata](issues/01-git-identity-no-reply-address.md) — repo-local `user.email` set to `68194446+jmnicolas90@users.noreply.github.com`, real name kept; verified in an actual commit object. Done before the first commit, so no history rewrite. Commits are now safe to push publicly.
+- [Raise minSdk to 31](issues/02-raise-minsdk-to-31.md) — `minSdkVersion 31`, ~190 lines of pre-31 branches deleted, including the notification priority/sound settings that Android 8 had already made inert. Lint is now clean, so the `NewApi` finding on `QuickTileService` is closed. `targetSdk` untouched (ticket 17).
 
 ## Not yet specified
 

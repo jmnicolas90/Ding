@@ -21,10 +21,8 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.TileService
-import androidx.annotation.RequiresApi
 import felixwiemuth.simplereminder.ui.AddReminderDialogActivity
 
-@RequiresApi(api = Build.VERSION_CODES.N)
 class QuickTileService : TileService() {
     @SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {

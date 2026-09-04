@@ -20,7 +20,6 @@ import android.app.Activity
 import android.app.DatePickerDialog
 import android.content.DialogInterface
 import android.content.res.Resources
-import android.os.Build
 import android.os.Bundle
 import android.text.Editable
 import android.text.InputType
@@ -38,7 +37,6 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.AutoCompleteTextView
 import android.widget.Button
-import android.widget.CheckedTextView
 import android.widget.DatePicker
 import android.widget.LinearLayout
 import android.widget.NumberPicker
@@ -247,8 +245,7 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
                     }
                 }
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                && Prefs.getBooleanPref(
+            if (Prefs.getBooleanPref(
                     R.string.prefkey_reminder_dialog_close_keyboard_on_timepicker_use,
                     false,
                     this@ReminderDialogActivity
@@ -311,14 +308,8 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
      */
     protected fun updateTimePicker(hour: Int, minute: Int) {
         timePickerChangeListenerEnabled = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            timePicker.hour = hour
-            timePicker.minute = minute
-        } else @Suppress("DEPRECATION") run {
-            timePicker.currentHour = hour
-            timePicker.currentMinute = minute
-        }
-
+        timePicker.hour = hour
+        timePicker.minute = minute
         timePickerChangeListenerEnabled = true
     }
 
@@ -632,11 +623,9 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
      * Adapt the time picker layout according to user's set preferences.
      */
     private fun adaptTimePickerLayout() {
-        // Removing the whole layout with the toggle button if present (it exists from Android 8.0 on) and disabled by user
+        // Removing the whole layout with the toggle button if disabled by user
         //noinspection DiscouragedApi (have to access the internal system resources by name)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-            && !Prefs.getBooleanPref(R.string.prefkey_reminder_dialog_timepicker_show_keyboard_button, true, this)
-        ) {
+        if (!Prefs.getBooleanPref(R.string.prefkey_reminder_dialog_timepicker_show_keyboard_button, true, this)) {
             val toggleButton = timePicker.findViewById<View>(Resources.getSystem().getIdentifier("toggle_mode", "id", "android"))
             (toggleButton?.parent as? ViewGroup)
                 ?.let { toggleButtonLayout ->
@@ -691,17 +680,10 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
                     ?.let { it.textSize = timeHeaderTextSize }
                 timeHeader.findViewById<TextView>(Resources.getSystem().getIdentifier("separator", "id", "android"))
                     ?.let { it.textSize = timeHeaderTextSize }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) { // The type of the label views changes on Android 7 (tested with Pixel 5 emulator)
-                    timeHeader.findViewById<RadioButton>(Resources.getSystem().getIdentifier("am_label", "id", "android"))
-                        ?.let { it.textSize = textSizeAmPmLabel }
-                    timeHeader.findViewById<RadioButton>(Resources.getSystem().getIdentifier("pm_label", "id", "android"))
-                        ?.let { it.textSize = textSizeAmPmLabel }
-                } else {
-                    timeHeader.findViewById<CheckedTextView>(Resources.getSystem().getIdentifier("am_label", "id", "android"))
-                        ?.let { it.textSize = textSizeAmPmLabel }
-                    timeHeader.findViewById<CheckedTextView>(Resources.getSystem().getIdentifier("pm_label", "id", "android"))
-                        ?.let { it.textSize = textSizeAmPmLabel }
-                }
+                timeHeader.findViewById<RadioButton>(Resources.getSystem().getIdentifier("am_label", "id", "android"))
+                    ?.let { it.textSize = textSizeAmPmLabel }
+                timeHeader.findViewById<RadioButton>(Resources.getSystem().getIdentifier("pm_label", "id", "android"))
+                    ?.let { it.textSize = textSizeAmPmLabel }
 
                 // Making the height adapt to the changed font size (however, MATCH_PARENT also seems to work)
                 // Note: This expects a LinearLayout.LayoutParams despite the parameter type

@@ -1,7 +1,7 @@
 # 02 — Raise minSdk to 31 and delete the pre-31 compatibility branches
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: —
 
 ## Question
@@ -20,3 +20,17 @@ Set `minSdkVersion 31`, then sweep for now-dead code: `Build.VERSION.SDK_INT` co
 Do **not** touch `targetSdk` here — that is ticket 17, and bundling them would make any breakage impossible to attribute.
 
 **Done when** `./gradlew :app:lintDebug :app:testDebugUnitTest :app:assembleDebug` is green, and no `SDK_INT` check below 31 remains.
+
+## Outcome
+
+Done. Gate green: `:app:lintDebug` 0 errors (was 1), 65 unit tests pass, `:app:assembleDebug` succeeds.
+No `SDK_INT` check below 31 remains — the survivors are all API 33/34 and still reachable.
+
+Two corrections to the ticket's expectations:
+
+- **`POST_NOTIFICATIONS` does not become unconditional.** It is an API 33 permission and
+  Android 12/12L are still supported, so its checks correctly stay.
+- **The `_API33` string variants do not collapse either**, for the same reason. What died were
+  the pre-31 *base* strings; the `_API31` ones were renamed to take their place, since they are
+  now the baseline rather than a variant.
+

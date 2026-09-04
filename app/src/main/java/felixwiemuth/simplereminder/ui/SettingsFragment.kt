@@ -16,8 +16,6 @@
  */
 package felixwiemuth.simplereminder.ui
 
-import android.app.AlarmManager
-import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener
@@ -27,7 +25,6 @@ import android.provider.Settings
 import android.text.InputType
 import android.widget.EditText
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import androidx.preference.EditTextPreference
 import androidx.preference.Preference
 import androidx.preference.Preference.SummaryProvider
@@ -39,6 +36,7 @@ import felixwiemuth.simplereminder.Prefs
 import felixwiemuth.simplereminder.R
 import felixwiemuth.simplereminder.ReminderManager
 import felixwiemuth.simplereminder.ui.util.UIUtils
+import felixwiemuth.simplereminder.util.AlarmManagerUtil
 import felixwiemuth.simplereminder.util.DateTimeUtil
 
 class SettingsFragment : PreferenceFragmentCompat(), OnSharedPreferenceChangeListener {
@@ -51,11 +49,7 @@ class SettingsFragment : PreferenceFragmentCompat(), OnSharedPreferenceChangeLis
         }
 
         findPreference<Preference>(getString(R.string.prefkey_disable_battery_optimization))?.apply {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                updateBatteryPrefDescription(this)
-            } else {
-                parent?.removePreference(this)
-            }
+            updateBatteryPrefDescription(this)
         }
 
         findPreference<EditTextPreference>(getString(R.string.prefkey_nagging_repeat_interval))?.apply {
@@ -81,24 +75,20 @@ class SettingsFragment : PreferenceFragmentCompat(), OnSharedPreferenceChangeLis
                 }
         }
 
-        // Priority/Sound settings only work for Android < 8
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val notificationsPrefGroup = findPreference<PreferenceCategory>(getString(R.string.prefkey_cat_notifications))
-            notificationsPrefGroup!!.removePreference(findPreference(getString(R.string.prefkey_priority))!!)
-            notificationsPrefGroup.removePreference(findPreference(getString(R.string.prefkey_enable_sound))!!)
-            val notificationChannelPreference = Preference(requireContext())
-            notificationChannelPreference.setTitle(R.string.preference_notification_channel_settings)
-            notificationChannelPreference.onPreferenceClickListener =
-                Preference.OnPreferenceClickListener {
-                    val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                    intent.putExtra(Settings.EXTRA_APP_PACKAGE, requireContext().packageName)
-                    intent.putExtra(Settings.EXTRA_CHANNEL_ID, ReminderManager.NOTIFICATION_CHANNEL_REMINDER)
-                    startActivity(intent)
-                    true
-                }
-            notificationChannelPreference.isIconSpaceReserved = false
-            notificationsPrefGroup.addPreference(notificationChannelPreference)
-        }
+        // Priority and sound are properties of the notification channel, so link to its settings
+        val notificationsPrefGroup = findPreference<PreferenceCategory>(getString(R.string.prefkey_cat_notifications))!!
+        val notificationChannelPreference = Preference(requireContext())
+        notificationChannelPreference.setTitle(R.string.preference_notification_channel_settings)
+        notificationChannelPreference.onPreferenceClickListener =
+            Preference.OnPreferenceClickListener {
+                val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                intent.putExtra(Settings.EXTRA_APP_PACKAGE, requireContext().packageName)
+                intent.putExtra(Settings.EXTRA_CHANNEL_ID, ReminderManager.NOTIFICATION_CHANNEL_REMINDER)
+                startActivity(intent)
+                true
+            }
+        notificationChannelPreference.isIconSpaceReserved = false
+        notificationsPrefGroup.addPreference(notificationChannelPreference)
 
         findPreference<Preference>(getString(R.string.prefkey_reset_dont_show_again))?.onPreferenceClickListener =
             Preference.OnPreferenceClickListener {
@@ -112,10 +102,7 @@ class SettingsFragment : PreferenceFragmentCompat(), OnSharedPreferenceChangeLis
         super.onResume()
         preferenceScreen.sharedPreferences!!.registerOnSharedPreferenceChangeListener(this)
         findPreference<Preference>(getString(R.string.prefkey_disable_battery_optimization))?.let {
-            // This condition should hold when the preference is present (but it is necessary for type checking)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                updateBatteryPrefDescription(it)
-            }
+            updateBatteryPrefDescription(it)
         }
     }
 
@@ -144,54 +131,44 @@ class SettingsFragment : PreferenceFragmentCompat(), OnSharedPreferenceChangeLis
      * Update description and on-click listener of the battery optimization preference.
      * @param batPref
      */
-    @RequiresApi(23)
     private fun updateBatteryPrefDescription(batPref: Preference) {
-        val api = Build.VERSION.SDK_INT
-        val canScheduleExact =
+        // From Android 13 on, exact alarms are permanently allowed, so the advice differs
+        val exactAlarmsAlwaysAllowed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+        if (Prefs.isIgnoringBatteryOptimization(context)) {
+            batPref.summary = getString(
+                if (exactAlarmsAlwaysAllowed) R.string.preference_disable_battery_optimization_summary_yes_API33
+                else R.string.preference_disable_battery_optimization_summary_yes
+            )
+            batPref.onPreferenceClickListener =
+                Preference.OnPreferenceClickListener {
+                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    startActivity(intent)
+                    updateBatteryPrefDescription(batPref)
+                    true
+                }
+        } else {
+            // NOTE: As the text should change with "setSummary" here, the markup should apply. Should the text be equal, would need a workaround.
+            batPref.summary =
+                when {
+                    exactAlarmsAlwaysAllowed -> getString(R.string.preference_disable_battery_optimization_summary_no_API33)
+                    AlarmManagerUtil.canScheduleExact(requireContext()) ->
+                        getString(R.string.preference_disable_battery_optimization_summary_no_exactAllowed)
 
-            if (Prefs.isIgnoringBatteryOptimization(context)) {
-                batPref.summary = getString(
-                    when {
-                        api >= 33 -> R.string.preference_disable_battery_optimization_summary_yes_API33
-                        api >= 31 -> R.string.preference_disable_battery_optimization_summary_yes_API31
-                        else -> R.string.preference_disable_battery_optimization_summary_yes
+                    else -> UIUtils.makeAlertText(
+                        R.string.preference_disable_battery_optimization_summary_no_exactNotAllowed,
+                        requireContext()
+                    )
+                }
+            batPref.onPreferenceClickListener =
+                Preference.OnPreferenceClickListener {
+                    if (!AlarmManagerUtil.canScheduleExact(requireContext())) {
+                        startActivity(Prefs.getIntentScheduleExactSettings(context))
+                    } else {
+                        startActivity(Prefs.getIntentDisableBatteryOptimization(context))
                     }
-                )
-                batPref.onPreferenceClickListener =
-                    Preference.OnPreferenceClickListener {
-                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                        startActivity(intent)
-                        updateBatteryPrefDescription(batPref)
-                        true
-                    }
-            } else {
-                // NOTE: As the text should change with "setSummary" here, the markup should apply. Should the text be equal, would need a workaround.
-                batPref.summary =
-                    when {
-                        api >= 33 -> getString(R.string.preference_disable_battery_optimization_summary_no_API33)
-                        // noinspection NewApi
-                        api >= 31 -> if ((requireContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager).canScheduleExactAlarms())
-                            getString(R.string.preference_disable_battery_optimization_summary_no_API31_exactAllowed)
-                        else
-                            UIUtils.makeAlertText(
-                                R.string.preference_disable_battery_optimization_summary_no_API31_exactNotAllowed,
-                                requireContext()
-                            )
-
-                        else -> UIUtils.makeAlertText(R.string.preference_disable_battery_optimization_summary_no, requireContext())
-                    }
-                batPref.onPreferenceClickListener =
-                    Preference.OnPreferenceClickListener {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                            && !(requireContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager).canScheduleExactAlarms()
-                        ) {
-                            startActivity(Prefs.getIntentScheduleExactSettings(context))
-                        } else {
-                            startActivity(Prefs.getIntentDisableBatteryOptimization(context))
-                        }
-                        updateBatteryPrefDescription(batPref)
-                        true
-                    }
-            }
+                    updateBatteryPrefDescription(batPref)
+                    true
+                }
+        }
     }
 }

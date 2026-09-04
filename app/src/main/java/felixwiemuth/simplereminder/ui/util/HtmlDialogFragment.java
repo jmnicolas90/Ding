@@ -24,7 +24,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -243,24 +242,13 @@ public class HtmlDialogFragment extends DialogFragment {
     public Dialog onCreateDialog(Bundle savedInstanceState) {
         View content = LayoutInflater.from(getActivity()).inflate(R.layout.html_dialog_fragment, null);
         webView = (WebView) content.findViewById(R.id.html_dialog_fragment_web_view);
-        // Set the WebViewClient (in API <24 have to parse URI manually)
-        if (Build.VERSION.SDK_INT >= 24) {
-            webView.setWebViewClient(new WebViewClient() {
-                @Override
-                public boolean shouldOverrideUrlLoading(WebView webView, WebResourceRequest webResourceRequest) {
-                    Uri uri = webResourceRequest.getUrl(); // @TargetApi(Build.VERSION_CODES.N_MR1)
-                    return HtmlDialogFragment.this.loadUrl(webView, uri);
-                }
-            });
-        } else { //TODO test on an API < 24 device
-            webView.setWebViewClient(new WebViewClient() {
-                @Override
-                public boolean shouldOverrideUrlLoading(WebView webView, String url) {
-                    Uri uri = Uri.parse(url);
-                    return HtmlDialogFragment.this.loadUrl(webView, uri);
-                }
-            });
-        }
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView webView, WebResourceRequest webResourceRequest) {
+                Uri uri = webResourceRequest.getUrl();
+                return HtmlDialogFragment.this.loadUrl(webView, uri);
+            }
+        });
 
         indeterminateProgress = (ProgressBar) content.findViewById(R.id.html_dialog_fragment_indeterminate_progress);
 

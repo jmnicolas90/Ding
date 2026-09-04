@@ -28,7 +28,7 @@ SimpleReminder is currently under development, and new features are added contin
 
 
 ## Features
-- Specific launcher icon and Quick Settings tile (Android 7.0+) to directly reach the "Add Reminder" dialog
+- Specific launcher icon and Quick Settings tile to directly reach the "Add Reminder" dialog
 - Easily add a reminder within the next 24 hours by using a clock widget
 - Alternatively, type the time: absolute (12:30) or relative (+1:30)
 - Choose a custom date for a reminder with +/- buttons or in a calendar
