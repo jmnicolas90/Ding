@@ -20,16 +20,28 @@ the identifiers alone unless you are working that ticket.
 
 ## Hard constraints — do not break these
 
-- **GrapheneOS / AOSP compatible, always.** No Google, GMS, Play Services or
-  Firebase dependency may ever enter the graph. The app is Google-free today
+- **GrapheneOS / AOSP compatible, always.** No Google Play Services, GMS or
+  Firebase dependency may ever enter the graph. The app is free of them today
   and has run on GrapheneOS for years; this is a property to keep, not to
-  build. It is enforced, not just documented — see gate G3 below.
+  build. It is enforced, not just documented: gate G3 below runs
+  `checkNoGoogleDependencies` in `app/build.gradle`, which walks the full
+  runtime classpath of every variant — transitive dependencies included — and
+  fails on the groups `com.google.android.gms` and `com.google.firebase`, or
+  on any module whose name contains `play-services`. The match is on
+  coordinates, never on the string "google", because
+  `com.google.android.material` is deliberately allowed: it is AndroidX
+  Material Components, open source, runs on AOSP with no Google services, and
+  the app already depends on it.
 - **`minSdk 31`.** `targetSdk` is the constraint's other half and is still
   `34` in `app/build.gradle`; ticket 17 raises it to `36`. `compileSdk` is
   already `36`.
 - **No personal email address anywhere** — not in the tree, not in commit
   metadata, not in published artifacts. Commits use the GitHub no-reply
-  address configured repo-locally.
+  address configured repo-locally. **This one is currently broken in the
+  tree**: `Main.kt` still configures ACRA to mail crash reports to the
+  upstream author's personal address, so the rule is the target, not the
+  present state. Ticket 06 removes ACRA outright and scrubs the remaining
+  upstream contact points; no address is substituted in its place.
 - **Never commit a red gate.**
 
 ## The gate
@@ -121,10 +133,17 @@ before touching reminder state. The short version:
   is an identity across three different Android subsystems at once, and
   reusing or re-deriving one silently cross-wires alarms, notifications and
   intents.
-- **Every Deliver and Nag alarm carries the due time it was set for**, and a
-  mismatch with the stored due time means the alarm is stale and is ignored
-  rather than treated as an error. A missing reminder is likewise cleanup,
-  never a crash.
+- **Two rules from `docs/reminder-state-machine.md` are the target design,
+  not today's behaviour.** Every Deliver and Nag alarm is meant to carry the
+  due time it was set for, so a mismatch with the stored due time marks the
+  alarm stale and it is ignored rather than treated as an error; and a
+  missing reminder is meant to be cleanup, never a crash. Neither holds yet.
+  `ReminderAction` serializes only the reminder id, so nothing can tell a
+  stale alarm from a live one and a cold-start sweep followed by the delivered
+  alarm can alert the same reminder twice; and `ReminderAction.run` calls
+  `ReminderStorage.getReminder`, which throws `ReminderNotFoundException`
+  instead of cleaning up when the reminder is gone. Ticket 10 implements the
+  transition boundary and closes both.
 
 ## Tickets and bookkeeping
 
