@@ -54,10 +54,12 @@ import app.ding.Prefs
 import app.ding.R
 import app.ding.data.Reminder
 import app.ding.data.Reminder.Companion.builder
+import app.ding.state.toMinutePrecision
 import app.ding.util.DateTimeUtil
 import app.ding.util.TextBasedTimeInput.TimeMatcher
 import app.ding.util.setOneTimeClickListener
 import java.util.Calendar
+import java.util.Date
 
 /**
  * Base class for the reminder dialog activity which is used to add and edit reminders.
@@ -325,18 +327,19 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
         } else {
             selectedDate[Calendar.HOUR_OF_DAY] = hourOfDay
             selectedDate[Calendar.MINUTE] = minute
+            cutToMinute(selectedDate)
         }
     }
 
     // TODO move to DateTimeUtil
     /**
-     * Given an hour and minute, returns a date representing the next occurrence of this time within the next 24 hours. The seconds are set to 0, milliseconds become the value within the current second.
+     * Given an hour and minute, returns a date representing the next occurrence of this time within the next 24 hours, at minute precision.
      */
     private fun getTimeWithinNext24Hours(hourOfDay: Int, minute: Int): Calendar {
         val date = Calendar.getInstance()
         date[Calendar.HOUR_OF_DAY] = hourOfDay
         date[Calendar.MINUTE] = minute
-        date[Calendar.SECOND] = 0
+        cutToMinute(date)
         // If the resulting date is in the past, the next day is meant
         if (date.before(Calendar.getInstance())) {
             date.add(Calendar.DAY_OF_MONTH, 1)
@@ -345,18 +348,44 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
     }
 
     /**
-     * Set the selected time to that of the given calendar, setting seconds to 0.
+     * The due time the pickers currently hold, in epoch milliseconds. The edit dialog
+     * reads it right after restoring a reminder, so that "the user did not touch the
+     * time" is compared against the value the pickers actually took rather than against
+     * the stored date before the pickers cut it to the minute.
+     */
+    protected val selectedDueTime: Long
+        get() = toMinutePrecision(selectedDate.timeInMillis)
+
+    /**
+     * Cut the given calendar to the minute the dialog shows for it.
+     *
+     * The dialog's due time is minute precision by definition: the pickers show a date,
+     * an hour and a minute and nothing finer. Every path that sets the selected time
+     * ends here, so that two paths agreeing on the displayed minute agree on the epoch
+     * value too. They did not: restoring a stored reminder kept its milliseconds, while
+     * the date picker and the "next 24 hours" time picker each started from a fresh
+     * [Calendar.getInstance] and kept the milliseconds of the moment they ran. Since the
+     * edit dialog tells an edit from a reschedule by comparing due times, an OK press
+     * that changed nothing visible could re-arm a reminder the user had dealt with.
+     */
+    private fun cutToMinute(calendar: Calendar) {
+        calendar[Calendar.SECOND] = 0
+        calendar[Calendar.MILLISECOND] = 0
+    }
+
+    /**
+     * Set the selected time to that of the given calendar, at minute precision.
      * Does not render the date/time display.
      *
      * @param calendar
      */
     protected fun setSelectedDateTime(calendar: Calendar) {
         selectedDate.time = calendar.time
-        selectedDate[Calendar.SECOND] = 0 // We leave milliseconds as-is, as a little randomness in time is probably good
+        cutToMinute(selectedDate)
     }
 
     /**
-     * Set the selected and displayed date/time to that of the given calendar (seconds are set to 0).
+     * Set the selected and displayed date/time to that of the given calendar (at minute precision).
      * Also sets the [.dateSelectionMode] based on whether the selected time lies within the next 24 hours.
      * Renders the result.
      *
@@ -563,7 +592,7 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
 
     protected fun buildReminderWithTimeTextNagging(): Reminder.Builder {
         val reminderBuilder = builder(
-            selectedDate.time,
+            Date(selectedDueTime),
             getCurrentReminderText()
         )
         if (naggingSwitch.isChecked) {

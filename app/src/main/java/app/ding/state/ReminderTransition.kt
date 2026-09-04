@@ -79,6 +79,35 @@ sealed interface ReminderCommand {
     data class Reconcile(override val reminderId: Int) : ReminderCommand
 }
 
+/**
+ * What a save from the edit dialog asks for: the due time decides.
+ *
+ * The dialog opens on the reminder's stored due time whatever its state, so leaving
+ * the pickers alone means only the text or the nag settings changed. That is an
+ * [ReminderCommand.Edit], which never changes the state: a done reminder stays done
+ * and unscheduled, a notified one stays notified. Moving the due time is a
+ * [ReminderCommand.Reschedule], which lands the reminder in [Status.SCHEDULED] from
+ * any state and is refused unless the new time is in the future.
+ *
+ * @param dueTimeWhenOpened the due time the dialog was opened on, which is the stored
+ *     one, so that "untouched" is compared against the value the pickers were restored to
+ */
+fun editOrReschedule(
+    reminderId: Int,
+    dueTimeWhenOpened: Long,
+    chosenDueTime: Long,
+    text: String,
+    naggingRepeatInterval: Int
+): ReminderCommand =
+    // Both values are cut to the minute before they are compared, because the dialog's
+    // due time is minute precision by definition and the parts below the minute differ
+    // between picker paths for reasons the user cannot see.
+    if (toMinutePrecision(chosenDueTime) == toMinutePrecision(dueTimeWhenOpened)) {
+        ReminderCommand.Edit(reminderId, text, naggingRepeatInterval)
+    } else {
+        ReminderCommand.Reschedule(reminderId, chosenDueTime, text, naggingRepeatInterval)
+    }
+
 /** What the store has to do about a command. */
 sealed interface TransitionOutcome {
     /** Write this reminder. */
@@ -278,19 +307,33 @@ private fun edit(stored: Reminder, command: ReminderCommand.Edit, now: Long): Tr
         text = command.text,
         naggingRepeatInterval = command.naggingRepeatInterval
     )
-    // A scheduled or done reminder needs no effect: the alarm payload carries only
-    // the id and the due time, and text and nag settings are read from the store
-    // when the alarm fires.
-    if (edited.status != Status.NOTIFIED) {
-        return TransitionResult(TransitionOutcome.Updated(edited))
-    }
-    return TransitionResult(
-        TransitionOutcome.Updated(edited),
-        listOf(
-            ReminderEffect.ShowNotification(edited, NotificationKind.RESHOW),
-            if (edited.isNagging) nagAlarm(edited, now) else ReminderEffect.CancelAlarm(edited.id)
+    return when {
+        edited.status == Status.NOTIFIED -> TransitionResult(
+            TransitionOutcome.Updated(edited),
+            listOf(
+                ReminderEffect.ShowNotification(edited, NotificationKind.RESHOW),
+                if (edited.isNagging) {
+                    nagAlarm(edited, now)
+                } else {
+                    ReminderEffect.CancelAlarm(edited.id)
+                }
+            )
         )
-    )
+
+        // A scheduled reminder whose due time has already passed is one whose delivery
+        // has not happened yet, and an edit must not leave it without one. Putting the
+        // Deliver alarm back in its slot is what keeps invariant 1 true after an edit:
+        // an alarm set for a past time fires at once, so the delivery happens now
+        // instead of waiting for the next reconciliation, and the status guard means it
+        // still happens only once.
+        edited.status == Status.SCHEDULED && edited.date.time <= now ->
+            TransitionResult(TransitionOutcome.Updated(edited), listOf(deliverAlarm(edited)))
+
+        // Anything else needs no effect: the alarm payload carries only the id and the
+        // due time, and text and nag settings are read from the store when the alarm
+        // fires. A done reminder keeps its empty slot.
+        else -> TransitionResult(TransitionOutcome.Updated(edited))
+    }
 }
 
 private fun delete(stored: Reminder): TransitionResult =
