@@ -46,9 +46,9 @@ android {
 
     defaultConfig {
         // Release branch specific variables
-        applicationId "felixwiemuth.simplereminder"
-        def releaseChannel = ''
-        def versionCodeReleaseChannel = 7
+        applicationId "felixwiemuth.simplereminder.dev"
+        def releaseChannel = 'dev'
+        def versionCodeReleaseChannel = 1
 
         // Version variables
         def versionCodeMajor = 0
@@ -70,7 +70,7 @@ android {
 
         def gitDescription = "${gitDescribe()}"
 
-        versionName = versionCodeMajor + "." + versionCodeMinor + "." + versionCodePoint
+        versionName = versionCodeMajor + "." + versionCodeMinor + "." + versionCodePoint + "-" + releaseChannel + "-" + gitDescription
 
         minSdkVersion 31
         targetSdkVersion 34

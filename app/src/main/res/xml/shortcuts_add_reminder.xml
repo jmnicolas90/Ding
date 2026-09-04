@@ -26,7 +26,7 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetClass="felixwiemuth.simplereminder.ui.reminderslist.RemindersListActivity"
-            android:targetPackage="felixwiemuth.simplereminder" /> <!-- NOTE: Must be set to application ID -->
+            android:targetPackage="felixwiemuth.simplereminder.dev" /> <!-- NOTE: Must be set to application ID -->
     </shortcut>
 
 </shortcuts>
