@@ -17,9 +17,12 @@
 package app.ding.ui
 
 import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
 import app.ding.Prefs
 import app.ding.R
 import app.ding.ReminderManager.addReminder
+import app.ding.state.TransitionOutcome
 
 /**
  * Shows a dialog allowing to add a reminder. Finishes with [.RESULT_OK] if the reminder has been added.
@@ -31,9 +34,18 @@ class AddReminderDialogActivity : ReminderDialogActivity() {
     }
 
     override fun onDone() {
-        val reminder = addReminder(this, buildReminderWithTimeTextNagging())
-        makeToast(reminder)
-        completeActivity()
-        Prefs.setAddReminderDialogUsed(this)
+        when (val outcome = addReminder(this, buildReminderWithTimeTextNagging())) {
+            is TransitionOutcome.Updated -> {
+                makeToast(outcome.reminder)
+                completeActivity()
+                Prefs.setAddReminderDialogUsed(this)
+            }
+            // A due time that is not in the future is refused: say so and leave the
+            // dialog open so the time can be corrected.
+            is TransitionOutcome.Refused ->
+                Toast.makeText(this, R.string.add_reminder_toast_invalid_date, Toast.LENGTH_LONG).show()
+            // Nothing was stored. Telling the user that is ticket 12's typed failure.
+            else -> Log.e("AddReminder", "The reminder was not stored: $outcome")
+        }
     }
 }

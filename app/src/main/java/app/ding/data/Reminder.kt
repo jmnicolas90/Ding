@@ -47,7 +47,11 @@ constructor(
 
     val text: String = "",
 
-    var status: Status = Status.SCHEDULED
+    /**
+     * The reminder's state. Only the transition function in `app.ding.state` decides
+     * this; it is a `val` so that no caller can set it on the side.
+     */
+    val status: Status = Status.SCHEDULED
 ) : Comparable<Reminder> {
     /**
      * Status of saved reminders.

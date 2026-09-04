@@ -40,6 +40,7 @@ import app.ding.R
 import app.ding.ReminderManager
 import app.ding.ReminderStorage
 import app.ding.data.Reminder
+import app.ding.state.ReminderCommand
 import app.ding.ui.EditReminderDialogActivity
 import app.ding.ui.reminderslist.RemindersListFragment.Companion.BROADCAST_REMINDERS_UPDATED
 import app.ding.util.DateTimeUtil
@@ -134,12 +135,9 @@ class RemindersListFragment : Fragment() {
                     }
                 }
                 R.id.action_mark_done -> {
-                    ReminderManager.updateReminders(
-                        requireContext(),
-                        { r: Reminder -> r.status = Reminder.Status.DONE },
-                        selection,
-                        true
-                    ) // have to reschedule as some might still be scheduled
+                    selection.forEach { id ->
+                        ReminderManager.run(requireContext(), ReminderCommand.MarkDone(id))
+                    }
                     mode.finish()
                 }
                 R.id.action_add_template ->
@@ -149,7 +147,9 @@ class RemindersListFragment : Fragment() {
                         Toast.LENGTH_SHORT
                     ).show()
                 R.id.action_delete -> {
-                    ReminderManager.removeReminders(requireContext(), selection)
+                    selection.forEach { id ->
+                        ReminderManager.run(requireContext(), ReminderCommand.Delete(id))
+                    }
                     mode.finish()
                 }
                 R.id.action_select_all -> {

@@ -63,7 +63,9 @@ transition(stored: Reminder?, command: Command, now: Instant)
 ```
 
 Pure. No Android imports, no preferences, no clock of its own. `stored` is
-the reminder as read from the store under the lock, or absent.
+the reminder as read from the store under the lock, or absent. Times are epoch
+milliseconds in the implementation, matching the `Date` the store already
+holds; nothing in the model depends on which of the two it is.
 
 Outcomes:
 
@@ -96,8 +98,11 @@ always `Unchanged` with no effects: it is not an error.
 | Add | absent | due ≤ now | Refused(PastDue) | – |
 | Deliver | `SCHEDULED` | expected == due | Updated, `NOTIFIED` | ShowNotification(Deliver); SetAlarm(nextNag(now), Nag) if nagging |
 | Deliver | `SCHEDULED` | expected ≠ due | Unchanged (stale) | – |
+| Deliver | `SCHEDULED` | no expected due time, due ≤ now | Updated, `NOTIFIED` | as the Deliver row above |
+| Deliver | `SCHEDULED` | no expected due time, due > now | Unchanged (stale) | – |
 | Deliver | `NOTIFIED`, `DONE` | – | Unchanged (stale) | – |
 | Nag | `NOTIFIED` | nagging and expected == due | Unchanged | ShowNotification(Nag); SetAlarm(nextNag(now), Nag) |
+| Nag | `NOTIFIED` | nagging and no expected due time | Unchanged | as the Nag row above |
 | Nag | anything else | – | Unchanged (stale) | – |
 | MarkDone | `SCHEDULED`, `NOTIFIED` | – | Updated, `DONE` | CancelAlarm; CancelNotification |
 | MarkDone | `DONE` | – | Unchanged | CancelAlarm; CancelNotification |
@@ -133,6 +138,23 @@ This costs nothing in the stored format: the due time is already stored. A
 generation counter was considered and rejected because the only case it
 adds is "rescheduled to the identical millisecond", which is
 indistinguishable to the user.
+
+## An alarm from an older build carries no due time
+
+An alarm outlives the build that set it: after an upgrade, `AlarmManager` still
+holds pending intents written by the old code, and builds from before this rule
+put no due time in them. Such an alarm has nothing to compare against the store.
+Calling it stale would lose its delivery for good, so "no due time carried" means
+deliver if the reminder is still `SCHEDULED` and already due, nag if it is still
+`NOTIFIED` and still nagging, and ignore otherwise. That is what Reconcile would
+do for the same reminder, and the status guard still holds, so it cannot deliver
+twice.
+
+A payload the app cannot read at all — an unknown format, or an intent with no
+payload — is not an error either. The alarm receiver logs it and runs Reconcile
+instead of throwing, because throwing there crashes the app and loses the alarm,
+while Reconcile brings every reminder's alarm and notification back in line with
+the store, including the one that alarm was for.
 
 ## A missing reminder is not an error
 
