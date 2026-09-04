@@ -17,11 +17,12 @@ To get the best results and avoid problems, please follow these steps:
 
 Ding is a fork, so a file's copyright header records who wrote it, not who owns the project:
 
-- **A new file carries the fork's copyright line**, followed by the GPL notice as in the rest of the project:
+- **A new source, build or script file carries the fork's copyright line**, followed by the GPL notice as in the rest of the project:
 
       Copyright (C) 2026 Jean-Michel Nicolas
 
   In a file where `/* */` or `<!-- -->` is not available, use the comment character the file's language provides (`#` for shell scripts and YAML, for instance) and keep the same wording.
+- **The rule covers Kotlin, Java, Gradle, shell, YAML and XML resource files, and not Markdown documentation**, which states in its own prose who wrote it and where its text came from, so that a document reproducing someone else's writing never carries a fork copyright claim over it.
 - **Headers inherited from SimpleReminder are never removed or edited**, including their copyright years. They are the attribution the GPL requires. A file the fork changes substantially may gain the fork's copyright line *underneath* upstream's; a file the fork only touches lightly keeps upstream's header alone.
 - Never put an email address in a header, or anywhere else in the tree. The quality gate fails on one.
 

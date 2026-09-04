@@ -109,3 +109,10 @@ commitment. The list is gone from the README.
   the README's Feedback section.
 - **`CLAUDE.md` was not touched.** Nothing in it describes the README, and the
   gate and constraints it documents are unchanged.
+
+## Review findings (2026-09-05)
+
+- **Upstream screenshots shipped as Ding's** — fixed: the five PNGs under `metadata/en-US/images/phoneScreenshots/` were byte-identical to upstream's at `d34bf2f` and store tooling would have published them as Ding's, so they are deleted; the README keeps its marked gap line ("Screenshots: to be regenerated under the Ding name") and nothing else referenced the files.
+- **`docs/upstream-planned-features.md` had no header while `CONTRIBUTING.md` demanded one** — fixed on both sides: the header rule now says it covers Kotlin, Java, Gradle, shell, YAML and XML resource files and not Markdown documentation, and the roadmap file opens with an attribution preface naming SimpleReminder by Felix Wiemuth at commit `d34bf2f`, copyright Felix Wiemuth, GPL-3.0-or-later, reproduced for the fork's own planning with no fork copyright claimed over it.
+- **The roadmap claimed to be verbatim but was not** — fixed: the "Planned features" section is now reproduced inside a fenced plain-text block exactly as upstream wrote it, restoring the dropped `#20` issue reference and the closing "And much more!" line, with the historical URL preserved as text rather than a live link; `diff` against the section extracted from `git show d34bf2f:README.md` is empty.
+- **"More than one upstream link remains live" in `about.html` and `CONTRIBUTORS.md`** — rejected: links to the original project from the about page and from the contributors file are attribution the licence obliges the fork to keep, and the ticket only forbids links to upstream's issue tracker or discussions presented as ours.
