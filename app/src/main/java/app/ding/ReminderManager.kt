@@ -39,12 +39,20 @@ import app.ding.state.ReminderCommandRunner
 import app.ding.state.ReminderEffect
 import app.ding.state.ReminderEffectExecutor
 import app.ding.state.TransitionOutcome
+import app.ding.state.notificationAlerts
+import app.ding.state.notificationAlertsOnlyOnce
 import app.ding.ui.EditReminderDialogActivity
 import app.ding.util.AlarmManagerUtil
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
 import java.util.Date
 
 /**
@@ -125,6 +133,11 @@ object ReminderManager {
      * the different actions at a later time.
      * Used when actions have to be initiated from outside the app (e.g. for scheduled actions
      * or from a notification).
+     *
+     * An action is written into a pending intent held by `AlarmManager` or by a
+     * notification, and both outlive the build that wrote them. The name each subtype
+     * is written under is therefore pinned with [SerialName] rather than left to follow
+     * the class name, and [fromJsonOrNull] still reads the names earlier builds wrote.
      */
     @Serializable
     sealed class ReminderAction {
@@ -133,12 +146,14 @@ object ReminderManager {
         /**
          * Deliver the reminder: show its notification and move it to [Status.NOTIFIED].
          * Carries the due time it was scheduled for, so that an alarm set for a due time
-         * the store no longer holds is recognised as stale and ignored.
+         * the store no longer holds is recognised as stale and ignored. It is null in a
+         * payload written before alarms carried their due time.
          */
         @Serializable
+        @SerialName("Deliver")
         data class Deliver(
             override val reminderId: Int,
-            val expectedDueTime: Long = 0
+            val expectedDueTime: Long? = null
         ) : ReminderAction() {
             /**
              * Get a minimal [PendingIntent] suitable to cancel one created with [toPendingIntent]
@@ -154,9 +169,10 @@ object ReminderManager {
          * [Reminder.naggingRepeatInterval]. Carries the same expected due time as [Deliver].
          */
         @Serializable
+        @SerialName("Nag")
         data class Nag(
             override val reminderId: Int,
-            val expectedDueTime: Long = 0
+            val expectedDueTime: Long? = null
         ) : ReminderAction()
 
         /**
@@ -164,6 +180,7 @@ object ReminderManager {
          * notifications or scheduled actions).
          */
         @Serializable
+        @SerialName("MarkDone")
         data class MarkDone(override val reminderId: Int) : ReminderAction()
 
         fun toJson(): String = Json.encodeToString(this)
@@ -172,9 +189,57 @@ object ReminderManager {
             private const val EXTRA_STRING_ACTION =
                 "app.ding.ReminderManager.extra.ACTION"
 
-            fun fromJson(serialized: String): ReminderAction = Json.decodeFromString(serialized)
-            fun getSerializedReminderActionFromIntent(intent: Intent): String =
-                requireNotNull(intent.getStringExtra(EXTRA_STRING_ACTION)) { "Intent does not contain extra $EXTRA_STRING_ACTION" }
+            /** The field kotlinx.serialization names the subtype in. */
+            private const val SUBTYPE_FIELD = "type"
+
+            /** What [Deliver] was called before it was renamed to the glossary's word. */
+            private const val OLD_NAME_FOR_DELIVER = "Notify"
+
+            /**
+             * The action the payload asks for, or null if it cannot be read.
+             *
+             * The answer is consumed inside a broadcast receiver, so an unreadable
+             * payload has to be an answer rather than an exception: the caller runs
+             * Reconcile instead, which brings alarms and notifications back in line
+             * with the store anyway.
+             */
+            fun fromJsonOrNull(serialized: String?): ReminderAction? {
+                if (serialized == null) {
+                    return null
+                }
+                return try {
+                    Json.decodeFromJsonElement<ReminderAction>(
+                        withCurrentSubtypeName(Json.parseToJsonElement(serialized))
+                    )
+                } catch (e: IllegalArgumentException) {
+                    // kotlinx.serialization reports every unreadable payload with a
+                    // SerializationException, which is an IllegalArgumentException.
+                    null
+                }
+            }
+
+            /**
+             * The same payload with a subtype name this build knows.
+             *
+             * Earlier builds left the name to kotlinx.serialization, which writes the
+             * class's full package path, and called the delivery action Notify. An
+             * alarm set by such a build is still in `AlarmManager` after an upgrade, so
+             * only the last part of the name is looked at and the old delivery name is
+             * translated. A payload that does not name a subtype is left alone, and
+             * fails to decode as it should.
+             */
+            private fun withCurrentSubtypeName(payload: JsonElement): JsonElement {
+                val fields = payload.jsonObject
+                val name = (fields[SUBTYPE_FIELD] as? JsonPrimitive)?.contentOrNull
+                    ?: return payload
+                val shortName = name.substringAfterLast('.')
+                val currentName =
+                    if (shortName == OLD_NAME_FOR_DELIVER) "Deliver" else shortName
+                return JsonObject(fields + (SUBTYPE_FIELD to JsonPrimitive(currentName)))
+            }
+
+            fun getSerializedReminderActionFromIntent(intent: Intent): String? =
+                intent.getStringExtra(EXTRA_STRING_ACTION)
         }
 
         /**
@@ -246,10 +311,23 @@ object ReminderManager {
     }
 
     /**
-     * Process a serialized reminder action.
+     * Process a serialized reminder action. A payload that cannot be read — an intent
+     * without one, or one written in a format this build no longer understands — is
+     * logged and answered with a reconciliation, never with an exception: this runs in
+     * a broadcast receiver, where throwing would crash the app and lose the alarm.
+     * Reconcile is the safe answer because it brings every reminder's alarm and
+     * notification back in line with the store, including the one this alarm was for.
      */
-    fun processReminderAction(context: Context, serializedReminderAction: String) {
-        val reminderAction: ReminderAction = ReminderAction.fromJson(serializedReminderAction)
+    fun processReminderAction(context: Context, serializedReminderAction: String?) {
+        val reminderAction = ReminderAction.fromJsonOrNull(serializedReminderAction)
+        if (reminderAction == null) {
+            Log.e(
+                "ReminderAction",
+                "Could not read the action in [$serializedReminderAction]; reconciling instead"
+            )
+            reconcileAllReminders(context)
+            return
+        }
         reminderAction.run(context)
     }
 
@@ -305,7 +383,6 @@ object ReminderManager {
             NotificationKind.NAG -> Prefs.isDisplayOriginalDueTimeNag(context)
             NotificationKind.RESHOW -> Prefs.isDisplayOriginalDueTimeRecreate(context)
         }
-        val silent = kind == NotificationKind.RESHOW
         val markDoneAction = ReminderAction.MarkDone(reminder.id)
         val markDoneIntent = markDoneAction.toPendingIntent(context)
         val editReminderIntent = EditReminderDialogActivity.getIntentEditReminder(context, reminder.id)
@@ -326,11 +403,13 @@ object ReminderManager {
             if (displayOriginalDueTime)
                 it.setWhen(reminder.date.time).setShowWhen(true)
         }
-            .setSilent(silent)
-            // Defence in depth against a duplicate delivery alerting twice. The guard in
-            // the transition function is what prevents the duplicate; this only limits
-            // the damage if one ever gets through.
-            .setOnlyAlertOnce(true)
+            .setSilent(!notificationAlerts(kind))
+            // Off for a nag, which replaces a notification that is still on screen and
+            // has to be heard doing it. On for a delivery, as defence in depth against a
+            // duplicate delivery alerting twice; the guard in the transition function is
+            // what prevents the duplicate, this only limits the damage if one gets
+            // through. See `NotificationAlerting.kt`.
+            .setOnlyAlertOnce(notificationAlertsOnlyOnce(kind))
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(context.getString(R.string.notification_title))
             .setContentText(reminder.text)

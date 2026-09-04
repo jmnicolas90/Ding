@@ -44,11 +44,15 @@ sealed interface ReminderCommand {
         val naggingRepeatInterval: Int
     ) : ReminderCommand
 
-    /** Deliver the reminder: show its notification and move it to [Status.NOTIFIED]. */
-    data class Deliver(override val reminderId: Int, val expectedDueTime: Long) : ReminderCommand
+    /**
+     * Deliver the reminder: show its notification and move it to [Status.NOTIFIED].
+     * [expectedDueTime] is the due time the alarm was set for, or null when the alarm
+     * was set by a build that did not carry one.
+     */
+    data class Deliver(override val reminderId: Int, val expectedDueTime: Long?) : ReminderCommand
 
     /** Show a delivered reminder again, and set the following nag. */
-    data class Nag(override val reminderId: Int, val expectedDueTime: Long) : ReminderCommand
+    data class Nag(override val reminderId: Int, val expectedDueTime: Long?) : ReminderCommand
 
     /** Finish the reminder. */
     data class MarkDone(override val reminderId: Int) : ReminderCommand
@@ -188,12 +192,22 @@ private fun add(command: ReminderCommand.Add, now: Long): TransitionResult {
     )
 }
 
-private fun deliver(stored: Reminder, expectedDueTime: Long, now: Long): TransitionResult {
+private fun deliver(stored: Reminder, expectedDueTime: Long?, now: Long): TransitionResult {
     // The guard that makes delivery happen at most once per (id, due time), however
     // many alarms and reconciliations arrive: a reminder that is no longer SCHEDULED
     // has already been delivered, and an alarm whose expected due time is not the
     // stored one was set for a delivery that no longer exists.
-    if (stored.status != Status.SCHEDULED || expectedDueTime != stored.date.time) {
+    if (stored.status != Status.SCHEDULED) {
+        return stale()
+    }
+    // An alarm that carries no due time comes from a build that set none, and there is
+    // nothing to compare. It delivers what a reconciliation would deliver anyway — a
+    // reminder still scheduled and already due — rather than being dropped as stale,
+    // which would lose that delivery for good.
+    val alarmMatchesStore =
+        if (expectedDueTime == null) stored.date.time <= now
+        else expectedDueTime == stored.date.time
+    if (!alarmMatchesStore) {
         return stale()
     }
     val delivered = stored.copy(status = Status.NOTIFIED)
@@ -206,8 +220,13 @@ private fun deliver(stored: Reminder, expectedDueTime: Long, now: Long): Transit
     )
 }
 
-private fun nag(stored: Reminder, expectedDueTime: Long, now: Long): TransitionResult {
-    if (stored.status != Status.NOTIFIED || !stored.isNagging || expectedDueTime != stored.date.time) {
+private fun nag(stored: Reminder, expectedDueTime: Long?, now: Long): TransitionResult {
+    if (stored.status != Status.NOTIFIED || !stored.isNagging) {
+        return stale()
+    }
+    // As for a delivery: an alarm carrying no due time cannot be compared, and a
+    // reminder that is still notified and still nagging is the one it was set for.
+    if (expectedDueTime != null && expectedDueTime != stored.date.time) {
         return stale()
     }
     return TransitionResult(

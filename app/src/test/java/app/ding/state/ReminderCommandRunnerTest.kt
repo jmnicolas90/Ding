@@ -16,6 +16,9 @@
  */
 package app.ding.state
 
+import app.ding.NAG_PAYLOAD_BEFORE_THE_RENAME
+import app.ding.NOTIFY_PAYLOAD_BEFORE_THE_RENAME
+import app.ding.ReminderManager.ReminderAction
 import app.ding.data.Reminder
 import app.ding.data.Reminder.Status
 import io.kotest.core.spec.style.FunSpec
@@ -73,7 +76,79 @@ class ReminderCommandRunnerTest : FunSpec({
             ReminderEffect.SetAlarm(4, NOW + 60_000, AlarmKind.DELIVER, NOW + 60_000)
         )
     }
+
+    test("an alarm set before the upgrade still delivers the reminder it was set for") {
+        val dueTime = NOW - 60_000
+        val store = FakeStore(StoredReminders(listOf(scheduled(dueTime)), nextId = 4))
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        // The old payload carries no due time, so the reminder still being scheduled
+        // and already due is what makes the alarm good.
+        runner.run(commandIn(NOTIFY_PAYLOAD_BEFORE_THE_RENAME))
+
+        executor.effects.filterIsInstance<ReminderEffect.ShowNotification>()
+            .map { it.kind } shouldBe listOf(NotificationKind.DELIVER)
+        store.read().reminders.single().status shouldBe Status.NOTIFIED
+    }
+
+    test("an alarm set before the upgrade adds nothing to the cold start") {
+        val dueTime = NOW - 60_000
+        val store = FakeStore(StoredReminders(listOf(scheduled(dueTime)), nextId = 4))
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        // Reconciliation runs first and delivers; the old alarm arrives second and
+        // finds the reminder already notified.
+        runner.reconcileAll()
+        runner.run(commandIn(NOTIFY_PAYLOAD_BEFORE_THE_RENAME))
+
+        executor.effects.filterIsInstance<ReminderEffect.ShowNotification>() shouldHaveSize 1
+        store.writes shouldHaveSize 1
+    }
+
+    test("an alarm set before the upgrade does not deliver a reminder that is not due") {
+        val store = FakeStore(StoredReminders(listOf(scheduled(NOW + 60_000)), nextId = 4))
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.run(commandIn(NOTIFY_PAYLOAD_BEFORE_THE_RENAME))
+
+        executor.effects shouldBe emptyList()
+        store.writes shouldBe emptyList()
+    }
+
+    test("a nag alarm set before the upgrade goes on nagging") {
+        val dueTime = NOW - 60_000
+        val nagging = scheduled(dueTime).copy(
+            naggingRepeatInterval = 5,
+            status = Status.NOTIFIED
+        )
+        val store = FakeStore(StoredReminders(listOf(nagging), nextId = 4))
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.run(commandIn(NAG_PAYLOAD_BEFORE_THE_RENAME))
+
+        executor.effects shouldBe listOf(
+            ReminderEffect.ShowNotification(nagging, NotificationKind.NAG),
+            ReminderEffect.SetAlarm(2, NOW + 240_000, AlarmKind.NAG, dueTime)
+        )
+        store.writes shouldBe emptyList()
+    }
 })
+
+/** The one scheduled reminder the payloads above name, due at [dueTime]. */
+private fun scheduled(dueTime: Long) = Reminder(
+    id = 2,
+    date = Date(dueTime),
+    text = "Water the plants",
+    status = Status.SCHEDULED
+)
+
+/** The command a payload asks for, as the broadcast receiver would work it out. */
+private fun commandIn(payload: String): ReminderCommand =
+    requireNotNull(ReminderAction.fromJsonOrNull(payload)).toCommand()
 
 /** A fixed clock: 2026-09-05T12:00:00Z. */
 private const val NOW = 1788609600000L
