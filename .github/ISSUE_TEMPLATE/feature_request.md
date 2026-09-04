@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest a concrete feature or improvement. For discussing ideas and more general topics use the discussions. In any case, check issues (planned features, feature requests) and the discussions first!
+about: Suggest a concrete feature or improvement. Please check existing issues first!
 title: ''
 labels: Feature request
 assignees: ''
