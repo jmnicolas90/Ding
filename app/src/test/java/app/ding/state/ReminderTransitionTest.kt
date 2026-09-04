@@ -248,24 +248,69 @@ class ReminderTransitionTest : FunSpec({
             ReminderCommand.Reschedule(ID, NOW + 2 * HOUR, "Water the ferns", 10)
     }
 
+    test("an untouched save is an edit when only the seconds and milliseconds differ") {
+        // The dialog's due time is minute precision: the pickers show a date, an hour
+        // and a minute and nothing finer. The picker paths used to keep whatever sat
+        // below the minute — the stored reminder's milliseconds on restore, the
+        // milliseconds of the moment it ran on every other path — so reopening the date
+        // picker on the same day produced a different epoch value for the same displayed
+        // minute. An OK press with nothing visibly changed must still be an edit,
+        // otherwise a future-due done reminder is silently re-armed as scheduled.
+        for (status in Status.entries) {
+            val displayedMinute = if (status == Status.SCHEDULED) NOW + HOUR else NOW - HOUR
+            val stored = reminder(dueTime = displayedMinute + 12_345L, status = status)
+
+            val command = editOrReschedule(
+                reminderId = ID,
+                dueTimeWhenOpened = stored.date.time,
+                // Same date and minute on screen, another moment within it.
+                chosenDueTime = displayedMinute + 54_321L,
+                text = "Water the ferns",
+                naggingRepeatInterval = 0
+            )
+
+            withClue(status.toString()) {
+                command shouldBe ReminderCommand.Edit(ID, "Water the ferns", 0)
+                val saved = (transition(stored, command, NOW).outcome as TransitionOutcome.Updated).reminder
+                saved.status shouldBe status
+                saved.date shouldBe stored.date
+            }
+        }
+    }
+
+    test("the edit dialog opens on the stored due time whatever the reminder's state") {
+        for (status in Status.entries) {
+            val dueMinute = if (status == Status.SCHEDULED) NOW + HOUR else NOW - 25 * MINUTE
+            // Seconds and milliseconds the store happens to hold are not part of the
+            // displayed due time and do not come back from the pickers either.
+            val stored = reminder(dueTime = dueMinute + 12_345L, status = status)
+
+            withClue(status.toString()) {
+                initialDueTimeForEdit(stored, NOW) shouldBe dueMinute
+            }
+        }
+    }
+
     test("saving a notified or done reminder with the time untouched no longer schedules it in the past") {
-        // The reported bug: the dialog opened a notified or done reminder on the current
-        // minute instead of its stored due time, so pressing OK asked for a reschedule to
-        // a minute that had normally already passed. The dialog now restores the stored
-        // due time, so an untouched save is an edit and the state survives it.
+        // The reported bug, from the dialog's two decisions composed: the due time the
+        // dialog opens on, and the command it issues for the value that comes back.
+        // The chosen due time is what the pickers hold after the restore and the user
+        // did not touch them; what makes an untouched save an edit is that the restored
+        // value is the reminder's own due time and not the minute the dialog opened on.
         for (status in listOf(Status.NOTIFIED, Status.DONE)) {
             val stored = reminder(dueTime = NOW - HOUR, status = status)
 
             val command = editOrReschedule(
                 reminderId = ID,
                 dueTimeWhenOpened = stored.date.time,
-                chosenDueTime = stored.date.time,
+                chosenDueTime = initialDueTimeForEdit(stored, NOW),
                 text = "Water the ferns",
                 naggingRepeatInterval = 0
             )
             val result = transition(stored, command, NOW)
 
             withClue(status.toString()) {
+                command shouldBe ReminderCommand.Edit(ID, "Water the ferns", 0)
                 val saved = (result.outcome as TransitionOutcome.Updated).reminder
                 saved.status shouldBe status
                 saved.date shouldBe stored.date

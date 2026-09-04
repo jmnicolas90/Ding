@@ -27,6 +27,8 @@ import app.ding.ReminderStorage.ReminderNotFoundException
 import app.ding.ReminderStorage.getReminder
 import app.ding.state.TransitionOutcome
 import app.ding.state.editOrReschedule
+import app.ding.state.initialDueTimeForEdit
+import java.util.Calendar
 
 /**
  * Shows a dialog allowing to edit a reminder. Finishes with [.RESULT_OK] if the reminder has been edited.
@@ -75,12 +77,18 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
             val reminder = getReminder(this, reminderId)
             setTextMovingCursorToEnd(reminder.text)
 
-            // Restore the stored due time whatever the reminder's state. Only a
-            // scheduled reminder used to get it back; a notified or done one kept the
-            // minute the dialog happened to open on, so pressing OK without touching
+            // Restore the due time the dialog opens on. Which one that is, is decided
+            // by initialDueTimeForEdit: the stored one whatever the reminder's state.
+            // Only a scheduled reminder used to get it back; a notified or done one kept
+            // the minute the dialog happened to open on, so pressing OK without touching
             // the time read as a reschedule to a minute that had normally already
-            // passed. The restored value is what "untouched" is compared against below.
-            setSelectedDateTimeAndSelectionMode(reminder.calendar)
+            // passed. The restored value is what "untouched" is compared against below,
+            // read back from the pickers so that removing this restore cannot pass
+            // unnoticed.
+            val initialDueTime = initialDueTimeForEdit(reminder, System.currentTimeMillis())
+            setSelectedDateTimeAndSelectionMode(
+                Calendar.getInstance().apply { timeInMillis = initialDueTime }
+            )
             naggingSwitch.isChecked = reminder.isNagging
             if (reminder.isNagging) {
                 naggingRepeatInterval = reminder.naggingRepeatInterval

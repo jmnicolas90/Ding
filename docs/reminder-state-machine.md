@@ -55,7 +55,9 @@ reminder id, except Add, which creates one.
 Which of `Edit` or `Reschedule` the edit dialog issues is decided by the due
 time, in every starting state (ticket 11). The dialog opens on the reminder's
 stored due time whatever its state; leaving it alone is an `Edit`, moving it is
-a `Reschedule`.
+a `Reschedule`. The comparison is at minute precision, because that is
+what the dialog's pickers show: a difference the user cannot see is not a
+reschedule.
 
 ## Transition function
 

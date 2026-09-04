@@ -122,3 +122,61 @@ its due time genuinely is in the past. It reads oddly for a done reminder, but
 changing the copy is a UI decision and this ticket is not a UI redesign. No
 Robolectric or instrumentation test was added for the dialog: the module has no
 Android test harness, and adding one is its own ticket.
+
+## Review findings (2026-09-05)
+
+- **Hidden milliseconds could turn an untouched save into a reschedule** (medium) —
+  *fixed*. Every picker path kept whatever sat below the minute, and a different
+  value on each: `setSelectedDateTime` cleared the seconds but deliberately kept
+  the milliseconds, while `setDateAction` and `getTimeWithinNext24Hours` started
+  from a fresh `Calendar.getInstance()` and kept the milliseconds of the moment
+  they ran, so two paths agreeing on the displayed minute disagreed on the epoch
+  value that `editOrReschedule` compares — enough to re-arm a future-due `DONE`
+  reminder as `SCHEDULED` on an OK press with nothing visibly changed. The
+  dialog's due time is minute precision by definition, so every path that sets
+  the selected time now ends in one shared `cutToMinute` helper, both read paths
+  (`selectedDueTime` and `buildReminderWithTimeTextNagging`) go through the new
+  pure `toMinutePrecision`, and `editOrReschedule` compares minute-normalised
+  values. New test: *an untouched save is an edit when only the seconds and
+  milliseconds differ*, which asserts `Edit` and the state kept for each of the
+  three states with the same displayed date and minute but different seconds and
+  milliseconds.
+- **The dialog restore was not tested** (medium) — *fixed*. The end-to-end test
+  fed `stored.date.time` as both the opened and the chosen value, so it never
+  exercised the restore in `setupActivityWithReminder` and would have passed with
+  the restore removed. The initialisation decision is now the pure function
+  `initialDueTimeForEdit(stored, now)` in the new
+  `app/src/main/java/app/ding/state/DialogDueTime.kt` (no Android imports), which
+  returns the stored due time at minute precision whatever the status and never
+  reads `now`; `EditReminderDialogActivity` restores the pickers from it and still
+  reads `dueTimeWhenOpened` back from the pickers, so dropping the restore cannot
+  pass unnoticed. New test: *the edit dialog opens on the stored due time whatever
+  the reminder's state*, for all three states. The end-to-end test *saving a
+  notified or done reminder with the time untouched no longer schedules it in the
+  past* now composes the two functions — the chosen due time is what
+  `initialDueTimeForEdit` restored, compared against the reminder's own stored due
+  time — so it fails if the restore stops returning the stored value.
+
+**Red first.** With `initialDueTimeForEdit` temporarily returning the current
+minute for a non-`SCHEDULED` reminder (the old dialog's behaviour), and the rest
+of the fix in place, two tests fail:
+
+```
+FAILED: the edit dialog opens on the stored due time whatever the reminder's state
+   NOTIFIED
+   expected:<1788608100000L> but was:<1788609600000L>
+FAILED: saving a notified or done reminder with the time untouched no longer schedules it in the past
+   NOTIFIED
+   expected:<Edit(reminderId=2, text=Water the ferns, naggingRepeatInterval=0)> but was:<Reschedule(reminderId=2, dueTime=1788609600000, text=Water the ferns, naggingRepeatInterval=0)>
+```
+
+`1788609600000` is the fixed clock itself and `1788608100000` is the stored due
+time 25 minutes earlier: the dialog opening on the current minute is exactly the
+reported bug. Before the minute-precision fix, the same run also failed *an
+untouched save is an edit when only the seconds and milliseconds differ* with
+`expected:<Edit(...)> but was:<Reschedule(reminderId=2, dueTime=1788613254321,
+...)>`. Restoring both fixes makes the 16 tests in the class green.
+
+**Change to the model document.** `docs/reminder-state-machine.md` now records
+that the edit-versus-reschedule comparison is at minute precision, since that is
+what the dialog's pickers show.

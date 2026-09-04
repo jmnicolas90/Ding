@@ -99,7 +99,10 @@ fun editOrReschedule(
     text: String,
     naggingRepeatInterval: Int
 ): ReminderCommand =
-    if (chosenDueTime == dueTimeWhenOpened) {
+    // Both values are cut to the minute before they are compared, because the dialog's
+    // due time is minute precision by definition and the parts below the minute differ
+    // between picker paths for reasons the user cannot see.
+    if (toMinutePrecision(chosenDueTime) == toMinutePrecision(dueTimeWhenOpened)) {
         ReminderCommand.Edit(reminderId, text, naggingRepeatInterval)
     } else {
         ReminderCommand.Reschedule(reminderId, chosenDueTime, text, naggingRepeatInterval)
