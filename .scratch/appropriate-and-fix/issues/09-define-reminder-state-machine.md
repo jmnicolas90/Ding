@@ -1,7 +1,7 @@
 # 09 — Define the reminder state machine and its single transition boundary
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: —
 
 ## Question
@@ -25,3 +25,18 @@ What has to be decided:
 Constraint from charting: **Room is out of scope.** The model must work over the existing `SharedPreferences` JSON store. Do not let the discussion drift into a store rewrite.
 
 **Done when** there is a written state machine — states, transitions, guards, and the idempotency rule — in `docs/` that tickets 10 through 13 can be implemented against, and that a test can be written from directly.
+
+## Resolution (2026-09-04)
+
+Written model: `docs/reminder-state-machine.md`. Glossary: `CONTEXT.md`. Architecture record: `docs/adr/0001-pure-transition-function.md`.
+
+- **States:** the three stay, tightened. `SCHEDULED` = not delivered, alarm pending. `NOTIFIED` = delivered, not dealt with. `DONE` = finished, resting not terminal. "Overdue" is not a state.
+- **Transitions:** Add, Deliver, Nag, MarkDone, Reschedule (legal from any state, lands `SCHEDULED`), Edit (never changes state), Delete, Reconcile. Full table with guards and effects in the doc.
+- **Idempotency:** status guard plus the due time carried in every Deliver and Nag alarm and compared to the store on arrival. A mismatch is stale and ignored. No stored-format change; a generation counter was rejected.
+- **Boundary:** one pure `transition(stored, command, now) -> outcome × effects` with no Android imports, wrapped by one runner: lock, read, transition, write with checked commit, then effects. Persist first; a failed write runs no effects and returns a typed failure. `Reminder.status` becomes a `val`; storage mutation goes private.
+- **Missing reminder:** an expected outcome, not an error. Every command on an absent reminder is `Unchanged` plus cancel-alarm and cancel-notification. The receiver never throws on it.
+- **Nag chain:** ends by guard. Nag is legal only in `NOTIFIED` with a matching due time; MarkDone, Reschedule and Delete empty the alarm slot. No time or count bound in this map.
+- **Past-due invariant:** Reschedule and Add to a time not after now are refused with `PastDue`. Reconcile delivers a past-due `SCHEDULED` reminder on sight, with a full alert.
+- **Recurrence:** deferred to the feature map, but the doc records the extension point. Leaning: the same reminder cycles, MarkDone on a reminder with a rule acts as Reschedule to the next occurrence after now.
+
+Fourteen tests are listed in the doc, the first being ticket 10's cold-start regression.

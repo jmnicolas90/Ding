@@ -6,6 +6,8 @@ Blocked by: 03, 09
 
 ## Question
 
+**Ticket 09 is resolved.** Implement against `docs/reminder-state-machine.md` (transition table, effects, invariants, and the numbered test list); use the vocabulary in `CONTEXT.md`.
+
 Implement the state machine decided in ticket 09, and route every existing mutation path through it: `Main`'s `scheduleAndReshowAllReminders()`, `ReminderAction.run` (`Notify`, `Nag`, `MarkDone`), and the edit dialog.
 
 Review finding this closes: **"A cold alarm can deliver the same reminder twice"** (high). `ReminderManager.kt:122-127` — `Notify` calls `showReminder` with no check of the stored status, and the notification builder does not set `setOnlyAlertOnce(true)`, so the duplicate produces real duplicate sound and vibration on the ordinary cold-start delivery path.

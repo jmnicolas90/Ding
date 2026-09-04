@@ -6,6 +6,8 @@ Blocked by: 09
 
 ## Question
 
+**Ticket 09 is resolved.** Implement against `docs/reminder-state-machine.md` (transition table, effects, invariants, and the numbered test list); use the vocabulary in `CONTEXT.md`.
+
 Review finding: **"Saving an already-notified or done reminder creates an unscheduled past-due reminder"** (medium), `EditReminderDialogActivity.kt:71-91`.
 
 Only `SCHEDULED` reminders restore their original due date. A `NOTIFIED` or `DONE` reminder keeps the dialog's initial current-minute value, and `buildReminderWithTimeTextNagging()` produces a builder whose status defaults to `SCHEDULED`. By the time the user presses OK that minute is normally already past, so `updateReminder(..., true)` cancels the current notification but schedules no replacement. The record sits `SCHEDULED` and past due until some later startup sweep surprises the user with it.
