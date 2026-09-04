@@ -1,7 +1,7 @@
 # 04 — Write CLAUDE.md
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: 03
 
 ## Question
@@ -19,3 +19,32 @@ Adapt `../Loquace/CLAUDE.md`, trimmed to a single-module Android app. It must co
 The domain vocabulary section is the part that cannot be copied from Loquace and is worth the most. It may be cheaper to write after ticket 09 has settled the state machine; if so, write everything else now and leave a marked gap rather than inventing terminology that ticket 09 then contradicts.
 
 **Done when** a fresh agent reading only `CLAUDE.md` can run the gate and knows what it must not break.
+
+## Resolution (2026-09-04)
+
+`CLAUDE.md` written at the repo root, 159 lines: what Ding is and its hard
+fork origin, the hard constraints, the gate as a one-liner plus each Gradle
+invocation, the working conventions, the domain vocabulary, where tickets
+live and how they route, and the environment facts (SDK, JDK, locale).
+
+Ticket 09 had settled by the time this was written, so the domain vocabulary
+section is real rather than a marked gap. It states the three states,
+nagging, and reminder id allocation, then points at `CONTEXT.md` and
+`docs/reminder-state-machine.md` instead of duplicating them.
+
+Two departures from the ticket text. The branching convention is written as
+"never directly on `main`", because the repo collapsed to a single trunk
+after this ticket was charted. And `targetSdk` is written as "still 34,
+ticket 17 raises it to 36" rather than as a met constraint, because CLAUDE.md
+should not describe the tree as better than it is.
+
+Left out on purpose: everything Loquace-specific (server, web, protocol,
+E2EE, deploy, its planning pipeline and skill inventory). The rename to Ding
+is described as pending, since ticket 05 has not run.
+
+## Review findings (2026-09-04)
+
+- **(high) The stale-alarm guard and the missing-reminder rule were written as current behaviour.** They are the target design from `docs/reminder-state-machine.md`; `ReminderAction` serializes only the reminder id and `ReminderAction.run` throws on an absent reminder. Rewritten as pending ticket 10, naming both live failure modes. — fixed
+- **(high) The no-personal-email constraint hid that the tree violates it.** `Main.kt` still mails ACRA crash reports to the upstream author. Now disclosed as pending ticket 06, in the same style as the rename and `targetSdk`, without writing the address into `CLAUDE.md`. — fixed
+- **(medium) `CLAUDE.md` called `.claude/worktrees/` gitignored, but `.gitignore` had no such rule.** Added `/.claude/worktrees/` to `.gitignore`, leaving `.claude/agents/` tracked. — fixed
+- **(medium) The no-Google rule was broader than the gate enforces.** Restated as what `checkNoGoogleDependencies` actually bans — the `com.google.android.gms` and `com.google.firebase` groups and any `play-services` module, on every variant runtime classpath, matched on coordinates — including the deliberate `com.google.android.material` exception. — fixed

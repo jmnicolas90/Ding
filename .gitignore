@@ -24,3 +24,6 @@
 
 # Emacs
 *.~undo-tree~
+
+# Agent worktrees (CLAUDE.md puts them here; .claude/agents/ stays tracked)
+/.claude/worktrees/
