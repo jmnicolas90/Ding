@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a problem with SimpleReminder. Please check existing issues first!
+about: Report a problem with Ding. Please check existing issues first!
 title: ''
 labels: Bug report
 assignees: ''

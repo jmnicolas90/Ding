@@ -17,8 +17,8 @@ raise `minSdk` and restructure at will. Keep the GPL attribution
 is "Ding". There is one build identity for every build type: upstream's
 release-channel scheme is gone, including the digit it took out of the version
 code. What still says SimpleReminder is deliberate and stays: the GPL
-copyright headers, `CONTRIBUTORS.md`, the upstream links and changelog entries
-that ticket 06 and ticket 07 own, and the historical record under `.scratch/`.
+copyright headers, `CONTRIBUTORS.md`, the changelog entries that record
+upstream's release history, and the historical record under `.scratch/`.
 
 ## Hard constraints — do not break these
 
@@ -39,11 +39,14 @@ that ticket 06 and ticket 07 own, and the historical record under `.scratch/`.
   already `36`.
 - **No personal email address anywhere** — not in the tree, not in commit
   metadata, not in published artifacts. Commits use the GitHub no-reply
-  address configured repo-locally. **This one is currently broken in the
-  tree**: `Main.kt` still configures ACRA to mail crash reports to the
-  upstream author's personal address, so the rule is the target, not the
-  present state. Ticket 06 removes ACRA outright and scrubs the remaining
-  upstream contact points; no address is substituted in its place.
+  address configured repo-locally. **This holds today** (ticket 06): the
+  crash reporter that mailed reports to the upstream author's personal
+  address is gone, along with the funding file and every upstream feedback
+  link, and no address was substituted in its place. The app has no crash
+  reporting at all, and GitHub issues on
+  `https://github.com/jmnicolas90/Ding` are the only contact channel. The
+  remaining addresses in `LICENSE.md`, `LICENSES/` and `CONTRIBUTORS.md` are
+  attribution the GPL requires, and stay.
 - **Never commit a red gate.**
 
 ## The gate

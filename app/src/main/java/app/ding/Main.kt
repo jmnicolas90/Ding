@@ -21,9 +21,6 @@ import android.content.Context
 import androidx.preference.PreferenceManager
 import app.ding.ReminderManager.createNotificationChannel
 import app.ding.ui.util.UIUtils
-import org.acra.config.dialog
-import org.acra.config.mailSender
-import org.acra.ktx.initAcra
 
 class Main : Application() {
     // Note: This is run before any app component starts, i.e., also when starting the app via "Add reminder" or the service.
@@ -40,22 +37,6 @@ class Main : Application() {
         // This might also be called in situations where it is not necessary, for example after the system or user killed the app process
         // without cancelling notifications and alarms. However, there is no handy way of detecting whether this is the case.
         ReminderManager.scheduleAndReshowAllReminders(this)
-    }
-
-    override fun attachBaseContext(base: Context) {
-        super.attachBaseContext(base)
-        initAcra {
-            buildConfigClass = BuildConfig::class.java
-            mailSender {
-                mailTo = "felixwiemuth@hotmail.de"
-                reportAsFile = false // The report being the content of the mail makes it more obvious to the user what data is sent.
-            }
-            dialog {
-                title = getString(R.string.acra_title)
-                text = getString(R.string.acra_prompt)
-                commentPrompt = getString(R.string.acra_comment_prompt)
-            }
-        }
     }
 
     companion object {
