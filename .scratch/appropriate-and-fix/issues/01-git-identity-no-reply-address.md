@@ -30,7 +30,7 @@ Done on 2026-09-04, before any commit was authored in this repo — so no rewrit
 
 Local rather than global by design: `git config --global user.email` is still the maintainer's personal address, so every other repo on this machine is unaffected — **and still exposed if any of them is public.** Out of scope here, but worth a look.
 
-**Verified two ways.** `git var GIT_AUTHOR_IDENT` and `GIT_COMMITTER_IDENT` both report the no-reply address; and a throwaway empty commit on `scratch/verify-identity` was inspected with `git log -1 --format='%an <%ae> / %cn <%ce>'`, confirming author *and* committer carry it. Grepping that commit's identity fields for `proton.me` returned nothing. The branch was deleted and the tree left on `develop`, clean.
+**Verified two ways.** `git var GIT_AUTHOR_IDENT` and `GIT_COMMITTER_IDENT` both report the no-reply address; and a throwaway empty commit on `scratch/verify-identity` was inspected with `git log -1 --format='%an <%ae> / %cn <%ce>'`, confirming author *and* committer carry it. Grepping that commit's identity fields for the personal address returned nothing. The branch was deleted and the tree left on `develop`, clean.
 
 **Fact later tickets depend on:** commits from this repo are safe to push publicly. The map and everything else can now be committed.
 

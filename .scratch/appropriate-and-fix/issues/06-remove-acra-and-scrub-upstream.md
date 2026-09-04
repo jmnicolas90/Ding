@@ -8,7 +8,7 @@ Blocked by: 03
 
 The repo currently routes its users, its money, and its crash reports to the upstream author.
 
-**Remove ACRA entirely.** `Main.kt` `attachBaseContext` configures `mailSender { mailTo = "felixwiemuth@hotmail.de" }` plus a confirmation dialog. Nothing leaves the device without the user pressing send, so this is a correctness and ownership problem rather than a data leak — but it ships a stranger's address prefilled. Decided while charting: no crash reporting at all, and no personal address substituted in. Drop `ch.acra:acra-mail` and `ch.acra:acra-dialog`, the `initAcra` block, `buildConfigClass` if it is only there for ACRA, and the `acra_*` strings.
+**Remove ACRA entirely.** `Main.kt` `attachBaseContext` configures `mailSender { mailTo = ... }` with the upstream author's personal address, plus a confirmation dialog. Nothing leaves the device without the user pressing send, so this is a correctness and ownership problem rather than a data leak — but it ships a stranger's address prefilled. Decided while charting: no crash reporting at all, and no personal address substituted in. Drop `ch.acra:acra-mail` and `ch.acra:acra-dialog`, the `initAcra` block, `buildConfigClass` if it is only there for ACRA, and the `acra_*` strings.
 
 **Scrub the rest**:
 - `.github/FUNDING.yml` → `github: [felixwiemuth]`. Delete the file; donations to the upstream author are not this fork's business.
@@ -85,3 +85,42 @@ substituted for the upstream author's.
   upstream shipped; no URL, no address.
 - `README.md` still says "Simple Reminder" in places. Ticket 07 owns the prose;
   this ticket only removed URLs.
+
+## Review findings (2026-09-05)
+
+- **Personal addresses survived in tracked files under `.scratch/`, in a public
+  repo** (high) — **fixed.** This ticket and ticket 01 quoted the maintainer's
+  and the upstream author's addresses literally while arguing about them; both
+  now describe the address instead of spelling it out. No-reply addresses stay.
+- **The no-personal-email constraint was documented but not enforced** (high,
+  follow-on of the first) — **fixed.** New gate stage G1, a grep over every
+  tracked file, allowlisting only `LICENSE.md`, `LICENSES/`, `CONTRIBUTORS.md`,
+  the licences page generated from `LICENSE.md`, and no-reply addresses; it
+  reports file and line and never the address. It lives in
+  `scripts/check-no-personal-email.sh` so that `scripts/check.sh` and
+  `.github/workflows/ci.yml` run the same code rather than two copies of a
+  regex. The GPL headers are not allowlisted — checked, none carries an
+  address. Tested by planting one in a tracked file and watching G1 go red.
+- **ACRA was still in the third-party licence table** (medium) — **fixed.** The
+  row is gone from `LICENSE.md` and from the rendered
+  `app/src/main/assets/open_source_licenses.html`. There is no ACRA file in
+  `LICENSES/` to remove; it was covered by the shared `LICENSES/APACHE-2.0`,
+  which three other dependencies still need.
+
+Two notes for ticket 08, which owns `generateOpenSourceLicensesFile.sh`:
+
+- The html was hand-edited to match, because pandoc is not installed on this
+  machine and could not regenerate it. The edit is the same row deletion plus
+  the odd/even zebra classes pandoc would have emitted for the rows after it.
+- `OPEN_SOURCE_LICENSES.md.patch` did not apply before this change either — two
+  typos ("thiry-party", "umodified") had been fixed in `LICENSE.md` but not in
+  the patch, and a blank line had moved. It was regenerated against the edited
+  `LICENSE.md` and now applies clean. Worse, running it is destructive: the
+  patch renames `LICENSE.md` to `OPEN_SOURCE_LICENSES.md`, so `git apply`
+  *deletes* `LICENSE.md`. The script is out of scope here, so this is recorded
+  rather than fixed.
+
+**Open question, for the maintainer.** Redacting the tree does not redact
+history: both addresses are in the published commits from `ec8353f` onwards,
+and GitHub serves author metadata through its API. Rewriting the history of a
+public repo is a call for the person whose address it is, and is not made here.

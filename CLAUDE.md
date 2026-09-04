@@ -25,7 +25,7 @@ upstream's release history, and the historical record under `.scratch/`.
 - **GrapheneOS / AOSP compatible, always.** No Google Play Services, GMS or
   Firebase dependency may ever enter the graph. The app is free of them today
   and has run on GrapheneOS for years; this is a property to keep, not to
-  build. It is enforced, not just documented: gate G3 below runs
+  build. It is enforced, not just documented: gate G4 below runs
   `checkNoGoogleDependencies` in `app/build.gradle`, which walks the full
   runtime classpath of every variant — transitive dependencies included — and
   fails on the groups `com.google.android.gms` and `com.google.firebase`, or
@@ -44,9 +44,12 @@ upstream's release history, and the historical record under `.scratch/`.
   address is gone, along with the funding file and every upstream feedback
   link, and no address was substituted in its place. The app has no crash
   reporting at all, and GitHub issues on
-  `https://github.com/jmnicolas90/Ding` are the only contact channel. The
-  remaining addresses in `LICENSE.md`, `LICENSES/` and `CONTRIBUTORS.md` are
-  attribution the GPL requires, and stay.
+  `https://github.com/jmnicolas90/Ding` are the only contact channel. It is
+  enforced, not just documented: gate G1 below greps every tracked file for an
+  address and fails on the file and line, allowing only `LICENSE.md`,
+  `LICENSES/`, `CONTRIBUTORS.md`, the licences page generated from `LICENSE.md`,
+  and no-reply addresses. Attribution the GPL requires stays; anything else is
+  a leak.
 - **Never commit a red gate.**
 
 ## The gate
@@ -57,16 +60,17 @@ One command, from the repo root, and it must be green before every commit:
 scripts/check.sh
 ```
 
-It runs six stages, fail-fast, in this order. The individual invocations:
+It runs seven stages, fail-fast, in this order. The individual invocations:
 
 | Stage | Command |
 |---|---|
 | G0 preflight | not Gradle — checks `$ANDROID_HOME/platforms/android-36` exists |
-| G1 lint | `./gradlew :app:lintDebug :app:lintRelease` |
-| G2 unit tests | `./gradlew :app:testDebugUnitTest` |
-| G3 Google guard | `./gradlew :app:checkNoGoogleDependencies` |
-| G4 debug APK | `./gradlew :app:assembleDebug` |
-| G5 release APK | `./gradlew :app:assembleRelease` |
+| G1 email guard | not Gradle — `scripts/check-no-personal-email.sh` |
+| G2 lint | `./gradlew :app:lintDebug :app:lintRelease` |
+| G3 unit tests | `./gradlew :app:testDebugUnitTest` |
+| G4 Google guard | `./gradlew :app:checkNoGoogleDependencies` |
+| G5 debug APK | `./gradlew :app:assembleDebug` |
+| G6 release APK | `./gradlew :app:assembleRelease` |
 
 `.github/workflows/ci.yml` runs the same tasks in the same order on every
 branch push and pull request. If the two ever drift, one of them is lying
@@ -76,7 +80,7 @@ Notes that save time: G0 exists because `compileSdk 36` needs the
 `platforms;android-36` SDK package specifically, and Android Studio installs
 `android-36.1`, which is a different package and does not substitute. Lint
 fails on errors only; there are pre-existing warnings and making them fatal
-is a separate cleanup. G5 is separate from G4 because the debug build is
+is a separate cleanup. G6 is separate from G5 because the debug build is
 debuggable and therefore skips R8's optimization and obfuscation passes, so
 release-only breakage is invisible until that stage. The first run in a
 fresh worktree is slow (several minutes); later runs are much faster.

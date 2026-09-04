@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Pre-commit gate: the one command that has to be green before committing.
 #
-# G0 preflight -> G1 lint -> G2 unit tests -> G3 Google guard -> G4 debug APK
-# -> G5 release APK. Fail-fast: the first red gate stops the run.
+# G0 preflight -> G1 email guard -> G2 lint -> G3 unit tests -> G4 Google guard
+# -> G5 debug APK -> G6 release APK. Fail-fast: the first red gate stops the run.
 #
 # The stages mirror .github/workflows/ci.yml stage for stage, on purpose (the
 # runners are noisier — no -q — but they run the same tasks in the same order).
@@ -62,17 +62,24 @@ preflight() {
 
 preflight
 
+# G1 is the other gate that is not a Gradle task. It runs here, before anything
+# that starts a JVM, because it costs milliseconds and because an address that
+# reaches a public push cannot be taken back. The check itself lives in its own
+# script, which the CI workflow runs too, so the pattern and the allowlist have
+# one home instead of two that drift.
+gate G1 "email guard" "$ROOT/scripts/check-no-personal-email.sh"
+
 # Both variants: the ticket's own argument for a separate release APK stage —
 # that release-only breakage is invisible to a debug gate — applies to lint too.
 # Errors only. The pre-existing warnings do not fail the gate; see the `lint`
 # block in app/build.gradle for why.
-gate G1 lint          "$GRADLE" -q :app:lintDebug :app:lintRelease
-gate G2 "unit tests"  "$GRADLE" -q :app:testDebugUnitTest
+gate G2 lint          "$GRADLE" -q :app:lintDebug :app:lintRelease
+gate G3 "unit tests"  "$GRADLE" -q :app:testDebugUnitTest
 # The GrapheneOS constraint, enforced rather than documented.
-gate G3 "Google guard" "$GRADLE" -q :app:checkNoGoogleDependencies
-gate G4 "debug APK"   "$GRADLE" -q :app:assembleDebug
-# G5 is worth its own gate, though not for the reason the ticket gave. Both build
-# types set minifyEnabled with the same proguardFiles, so G4 already exercises the
+gate G4 "Google guard" "$GRADLE" -q :app:checkNoGoogleDependencies
+gate G5 "debug APK"   "$GRADLE" -q :app:assembleDebug
+# G6 is worth its own gate, though not for the reason the ticket gave. Both build
+# types set minifyEnabled with the same proguardFiles, so G5 already exercises the
 # keep rules; what the debug build skips, being debuggable, is R8's optimization
 # and obfuscation passes. Breakage that only those passes can cause is invisible
 # to every gate above this one.
@@ -80,7 +87,7 @@ gate G4 "debug APK"   "$GRADLE" -q :app:assembleDebug
 # Note what neither gate covers: shrinkResources is set on debug and *not* on
 # release, so resource shrinking never runs on the shipping APK. That is a build
 # configuration bug, not a gate bug — see the ticket 03 notes.
-gate G5 "release APK" "$GRADLE" -q :app:assembleRelease
+gate G6 "release APK" "$GRADLE" -q :app:assembleRelease
 
 echo "─────────────────────────────"
 echo "All gates green."
