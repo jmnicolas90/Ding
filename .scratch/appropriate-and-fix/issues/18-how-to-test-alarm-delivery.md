@@ -91,5 +91,7 @@ become tickets 29 and 30 on top of ticket 27's harness.
 - **The two permission findings need none of the above.** Robolectric can deny
   and grant `POST_NOTIFICATIONS` and flip the exact-alarm state, so their tests
   land in G3 on ticket 27's harness: tickets 29 and 30.
-- **Order from here**: 22, 27, 28, 29, 30, 17, 26. Ticket 28 goes before 17 so
-  that the `targetSdk 36` verification has the managed device to run on.
+- **Order from here**: 22, 26, 27, 28, 29, 30, 17, 19. Ticket 28 goes before 17
+  so that the `targetSdk 36` verification has the managed device to run on;
+  ticket 26 goes before 17 so that its manifest change is in the tree 17 looks
+  at; ticket 19 is last because nothing depends on it.
