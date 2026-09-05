@@ -38,6 +38,7 @@ import app.ding.R
 import app.ding.ReminderManager
 import app.ding.ReminderStorage
 import app.ding.data.Reminder
+import app.ding.state.EffectsFailed
 import app.ding.state.PersistenceFailed
 import app.ding.state.ReminderCommand
 import app.ding.state.TransitionOutcome
@@ -160,25 +161,45 @@ class RemindersListFragment : Fragment() {
         }
 
         /**
-         * Runs one command per selected reminder, and tells the user if any of the
-         * writes did not commit. Every selected reminder is tried, because a store
+         * Runs one command per selected reminder, and tells the user about anything
+         * that did not happen. Every selected reminder is tried, because a store
          * that refused one write may still take the next; the ones that failed keep
          * the state they have on disk.
+         *
+         * The two failures are different things and get different messages: a write
+         * that did not commit changed nothing, while an effect that did not run leaves
+         * the reminder changed with an alarm or a notification that does not match it.
+         * Saying "nothing was changed" about the second would be untrue.
          */
         private fun runOnSelection(command: (Int) -> ReminderCommand) {
             val results = selection.map { id ->
                 ReminderManager.run(requireContext(), command(id))
             }
-            val anyFailed = results.any { result ->
+            var anyNotWritten = false
+            var anyEffectFailed = false
+            results.forEach { result ->
                 when (result) {
-                    is TransitionOutcome -> false
-                    PersistenceFailed -> true
+                    is TransitionOutcome -> Unit
+                    PersistenceFailed -> anyNotWritten = true
+                    // The command's own effects are the cancels of the reminder's alarm
+                    // and notification, so what is left behind is a notification still
+                    // on screen or an alarm still in its slot. The next Reconcile asks
+                    // for the same cancels again; until then the user can see the
+                    // difference, and is told rather than left to wonder.
+                    is EffectsFailed -> anyEffectFailed = true
                 }
             }
-            if (anyFailed) {
+            if (anyNotWritten) {
                 Toast.makeText(
                     context,
                     getString(R.string.error_msg_reminder_not_saved),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            if (anyEffectFailed) {
+                Toast.makeText(
+                    context,
+                    getString(R.string.error_msg_reminder_alarm_not_cleared),
                     Toast.LENGTH_LONG
                 ).show()
             }

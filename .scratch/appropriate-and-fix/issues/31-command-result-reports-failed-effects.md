@@ -1,7 +1,7 @@
 # 31 — Say so when an effect failed, instead of reporting a clean success
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: —
 
 ## Question
@@ -61,3 +61,27 @@ which is ticket 29, and the exact-alarm one, which is ticket 30.
 
 **Done when** no interactive command can report a clean success after an effect
 failed, the gate is green, and the tests above fail with the change reverted.
+
+## Resolution
+
+**A wrapper, not a case of its own.** `EffectsFailed(outcome, failedEffects)` is a
+case of `CommandResult` that holds the outcome the transition function decided,
+because the write did commit and the outcome is still true: the add dialog needs the
+stored reminder, and the edit dialog needs to tell a reminder it changed from one that
+was gone before it got there. A case that replaced the outcome would throw that away,
+and a list hanging off `TransitionOutcome.Updated` would be the same bug one level up —
+a success nobody has to read. As a case, every `when` over `CommandResult` without an
+`else` stopped compiling until it answered, which is what named the four callers.
+
+**The sweep took a field instead**, `Reconciled(outcomes, failedEffects)`. It has one
+caller, that caller has no user in front of it, and it logs and carries on either way,
+so there is no decision for the compiler to force; what the field does force is that no
+sweep result can be built without saying what did not happen.
+
+**What the dialogs do.** Both close with `RESULT_OK` — the reminder does exist, and
+pressing Add again would store a second one — and show "Reminder saved, but it may not
+go off as set." in place of the usual "due in ..." confirmation, with the failed effects
+logged at error level by their text-free `describe()`. The existing "could not save"
+wording is not reused: it says nothing was changed, which here is untrue. The reminders
+list, which the compiler named too, gets its own message for its own case: mark done and
+delete leave an alarm or a notification behind rather than an unscheduled reminder.

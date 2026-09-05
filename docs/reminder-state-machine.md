@@ -230,8 +230,14 @@ mutation on `ReminderManager`:
    effects in order, each on its own: one that throws is reported to the
    runner's failure reporter — which on Android logs it at error level, with
    the reminder's id and not its text — and the ones after it still run
-   (ticket 22).
-7. Return the outcome to the caller.
+   (ticket 22). The ones that could not be carried out are kept as they fail.
+7. Return the outcome to the caller, wrapped in `EffectsFailed(outcome,
+   failedEffects)` when step 6 kept any (ticket 31). The bare outcome is the
+   runner's promise that everything the command asked for happened; nothing
+   less may be read as one, which is why the wrapper is a case of
+   `CommandResult` and every caller has to answer it. A sweep answers
+   `Reconciled(outcomes, failedEffects)` instead, a field rather than a case,
+   because its one caller has no user in front of it and logs either way.
 
 Persist first, then effects. A Deliver whose write succeeds but whose
 notification is blocked by a missing permission leaves a `NOTIFIED`
@@ -243,9 +249,12 @@ One effect that fails does not take the rest of the list with it. A sweep's
 effects are every reminder's alarms and notifications in one list, so an
 exception escaping one of them would stop the app from restoring the alarms
 of every reminder behind it — one notification that cannot be shown, and
-nothing else fires either. The outcome the caller gets back says what was
-stored and is unaffected: the effect itself is the only thing lost, and only
-until the next Reconcile asks for it again.
+nothing else fires either. The outcome the caller gets back still says what was
+stored — the failure wraps it rather than replacing it, because the write did
+happen — and the effects that failed travel with it, so a caller with a user in
+front of it can report the reminder as saved without claiming it will go off.
+The effect itself is the only thing lost, and only until the next Reconcile asks
+for it again.
 
 `Reminder` becomes an immutable value. `status` is a `val`. `Reminder.Builder`
 survives only as the payload of `Add`. Storage mutation methods become
@@ -253,7 +262,7 @@ private to the runner; reading stays public for the list.
 
 ## Invariants
 
-After any command completes, and after Reconcile:
+After any command that carried out its effects, and after such a Reconcile:
 
 1. A `SCHEDULED` reminder has a Deliver alarm in its slot for its due time,
    and that time was in the future when it was written.
@@ -270,6 +279,16 @@ is not in the future, so a `SCHEDULED` reminder past due can only be one whose
 delivery has not happened yet; every other row either leaves the due time alone
 or puts the Deliver alarm back. A dialog therefore never has to check the time
 before saving — it only reports `Refused(PastDue)` to the user.
+
+What the invariants do not cover is a command whose store change committed and
+whose effects did not all run: a `SecurityException` from `AlarmManager` on API
+31 or 32, where exact-alarm access can be revoked, is the concrete case, and it
+leaves a `SCHEDULED` reminder with an empty alarm slot. The runner does not
+pretend otherwise — that command answers `EffectsFailed` and the sweep carries
+its failed effects — and the next Reconcile asks for the same alarm again, which
+is when invariant 1 is true once more. Between the two, the add and edit dialogs
+tell the user the reminder was saved and may not go off as set, rather than
+showing the usual "due in ..." confirmation.
 
 ## Recurrence (deferred)
 

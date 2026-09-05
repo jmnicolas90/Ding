@@ -25,9 +25,11 @@ import app.ding.R
 import app.ding.ReminderManager
 import app.ding.ReminderStorage.ReminderNotFoundException
 import app.ding.ReminderStorage.getReminder
+import app.ding.state.EffectsFailed
 import app.ding.state.PersistenceFailed
 import app.ding.state.RefusalReason
 import app.ding.state.TransitionOutcome
+import app.ding.state.describe
 import app.ding.state.editOrReschedule
 import app.ding.state.initialDueTimeForEdit
 import java.util.Calendar
@@ -37,6 +39,10 @@ import java.util.Calendar
  * was changed, and with `RESULT_CANCELED` when it was not — a reminder that is no longer
  * in the store, or backing out. A refused due time and a write that did not commit leave
  * the dialog open so the input can be corrected and sent again.
+ *
+ * A change that was stored but whose alarm or notification could not be carried out
+ * finishes with `RESULT_OK` too, because the reminder did change; what changes is what
+ * the user is told.
  *
  *
  * Has to be started with the intent provided by [getIntentEditReminder].
@@ -137,6 +143,29 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
                     Toast.makeText(this, R.string.error_msg_reminder_not_saved, Toast.LENGTH_LONG).show()
                 }
             }
+            // The change is stored, but an alarm or a notification it needs was not
+            // carried out — most often the Deliver alarm of a reschedule, which leaves
+            // the reminder scheduled with an empty slot until the next process start
+            // reconciles. It closes rather than staying open, because the change did
+            // happen and sending it again would write the same thing; what it must not
+            // do is show the usual "due in ..." toast for a time the reminder may not
+            // fire at.
+            is EffectsFailed -> if (result.outcome is TransitionOutcome.Updated) {
+                Log.e(
+                    "EditReminder",
+                    "The reminder was stored, but " +
+                        result.failedEffects.joinToString { it.describe() } +
+                        " could not be carried out"
+                )
+                Toast.makeText(this, R.string.error_msg_reminder_saved_not_scheduled, Toast.LENGTH_LONG)
+                    .show()
+                finishAfterChange()
+            } else {
+                // Nothing was written and effects ran, which is the cleanup of a
+                // reminder that is no longer in the store: the same answer as below,
+                // and the cancels that failed are already in the log.
+                reportReminderGone(result.outcome)
+            }
             // The store did not commit, so the reminder still holds what it held
             // before. Say so and leave the dialog open with the changes in it, so the
             // edit is not lost silently and pressing OK again is a real retry.
@@ -146,12 +175,16 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
             }
             // Nothing was written and nothing failed, which means the reminder was
             // removed while this dialog was open.
-            TransitionOutcome.Removed, TransitionOutcome.Unchanged -> {
-                Log.w("EditReminder", "The reminder was not updated: $result")
-                Toast.makeText(this, R.string.error_msg_reminder_not_found, Toast.LENGTH_LONG).show()
-                finishWithoutChange()
-            }
+            TransitionOutcome.Removed -> reportReminderGone(TransitionOutcome.Removed)
+            TransitionOutcome.Unchanged -> reportReminderGone(TransitionOutcome.Unchanged)
         }
+    }
+
+    /** Say the reminder is gone and close, having changed nothing. */
+    private fun reportReminderGone(outcome: TransitionOutcome) {
+        Log.w("EditReminder", "The reminder was not updated: $outcome")
+        Toast.makeText(this, R.string.error_msg_reminder_not_found, Toast.LENGTH_LONG).show()
+        finishWithoutChange()
     }
 
     companion object {
