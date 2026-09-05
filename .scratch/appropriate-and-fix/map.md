@@ -77,6 +77,31 @@ These are the answers that fixed the destination. They are not tickets and were 
 
 - [Fix the time header being scaled twice](issues/15-double-dp-sp-conversion.md) — the configured time display size was converted from dp to pixels with `applyDimension` and then assigned through `TextView.textSize`, whose setter reads the number as sp and scales it again, so the header grew with the *square* of the screen density: measured on the Pixel 6 emulator at the stored 12, the hour digits were 111px tall at 420 dpi against 49px at 280 dpi, a ratio of 2.27 where the densities differ by 1.5. **The unit is sp**, said so in the preference title ("Time display size (sp)"), in the Javadoc on the read and at the read site, and applied with `setTextSize(COMPLEX_UNIT_SP, ...)` for the hour, minute, separator and both AM/PM labels — one conversion, done by the platform. **The default moved 12 to 30 sp**, half the platform's own 60sp header, which is what 12 actually rendered as on a typical phone: the dialog looks unchanged on a normal device while the number now means the same thing on every screen. **Bounded to 8..96 sp** in `app/ding/data/TimePickerTextSizeSetting.kt` — 8 because the digits are also the hour/minute buttons and a too-small header is a too-small touch target, 96 because it still fits a small screen at the largest system font size — as one pure function with nine JVM tests, shared by the settings validation and the read, so a size the editor accepts is a size the dialog uses. The read no longer `Integer.parseInt`s whatever is stored: an unusable value falls back to the default, is logged, and is repaired in storage once, as ticket 14 did for the nag interval. The hardcoded `16` bottom margin is now 16dp converted once. Verified on the emulator at two densities and two sizes: doubling the size doubles the header (210/106 and 140/71), and the same size across densities is now the density ratio rather than its square (0.670 and 0.667 against 0.667), with 60sp landing exactly on the platform's own header. The AM/PM labels are fixed but could not be seen — the dialog forces `setIs24HourView(true)`, which is its own finding — and the clock height preference is still unbounded.
 
+## Global review, 2026-09-05
+
+Three Codex reviews of the whole fork-to-now diff, one axis each, records under
+`reviews/`. History was rewritten the same day to take the maintainer's address
+out of two historical blobs (fork commits only, `main` force-pushed with a
+lease). The findings were ticketed in the order they will be worked: 20 (email
+guard covers commits), then the JVM-testable reliability fixes 21, 22, 23, then
+the cheap user-facing ones 24 and 25, then ticket 18 followed by the two
+permission-state findings and ticket 17 as one emulator campaign, then ticket 16.
+
+**Findings not yet ticketed**, to be charted after the above:
+
+- Reliability 2 and 4: exact-alarm permission revoked then granted, and
+  notification permission granted after a denied delivery, neither triggers a
+  Reconcile. Needs ticket 18's answer first.
+- UI 3 (dialog draft lost on rotation), 4 (quarantine dialog dismissed by the
+  share chooser), 6 (clock height unbounded and crashes on corrupt storage),
+  7 (picker forces 24-hour mode), 10 (the ledger claim in `CLAUDE.md` about
+  main-thread I/O and retention).
+- Build 2 (Google guard walks only variant runtime configurations and Maven
+  coordinates), 3 (G6 builds an unsigned APK; release signing was already
+  unspecified below), 4 (`LICENSE.md` omits Kotlin stdlib and coroutines),
+  5 (licence script not atomic on a late failure), 6 (CI skips G0 and the SDK
+  package pin, the local gate never checks the JDK version).
+
 ## Not yet specified
 
 - **What replaces ACRA, if anything.** For an app whose entire value is firing reliably *in the background*, a foreground crash reporter may be the wrong instrument. The real question is how a silent failure-to-fire becomes visible at all. Revisit once the state machine (ticket 09) exists and there is something meaningful to observe.
