@@ -253,3 +253,22 @@ ReminderCommandRunnerTest > a counter above the mark for having none left refuse
 
 Left out: nothing new. The clamp changes no Android code beyond the wording of one log
 line, so the parts of this ticket that have no JVM seam are covered exactly as before.
+
+### Third round — two findings left open
+
+Reviewed again after the clamp; allocation now fails closed in every case the
+reviewer tried. Two medium findings are recorded here and **not fixed**, by the
+maintainer's decision to stop the fix rounds for the session; they are
+bookkeeping, not id safety:
+
+- **A refused Add never persists the clamped counter.** The read clamps
+  `Int.MAX_VALUE` to the exhausted mark and logs a repair, but a
+  `Refused(IdSpaceExhausted)` writes nothing, so the stored value stays and every
+  later read clamps and logs again. Fix when picked up: persist counter repairs
+  as a runner write under its lock before dispatching the command, whatever the
+  outcome, and test through the raw stored counter rather than through `read()`.
+- **The unreadable-store path does not set `counterRepaired`.** With unreadable
+  JSON and a counter above the mark, the quarantine clamps but the flag stays
+  false, so the repair is not logged. Fix: set the flag from the same comparison
+  the readable path uses, and add a `readStore` test combining unreadable JSON
+  with `EXHAUSTED_ID_COUNTER + 2` and `Int.MAX_VALUE`.
