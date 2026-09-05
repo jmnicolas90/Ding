@@ -23,3 +23,20 @@ documentation instead of the behaviour being built now.
   for the button, and a test that pressing it marks the reminder done exactly
   once. Found by the 2026-09-05 review (user-facing paths, finding 5); ticket 25
   corrected the documentation.
+
+- **Delivering reminders before the first unlock after a reboot.** Today the app
+  cannot run until the device has been unlocked once: the reminder store is
+  ordinary credential-protected `SharedPreferences`, unreadable before that, and
+  neither the application nor `BootReceiver` is direct-boot aware. So a reminder
+  due between a reboot and the next unlock fires late. That is not a rare case
+  on the device this app is written for: GrapheneOS can reboot the phone on its
+  own after a configured number of hours locked, so a reboot at 3am routinely
+  means nothing fires until morning. Building it needs the reminder content a
+  notification shows kept in device-protected storage, readable without the
+  passphrase and shown on a locked screen; `android:directBootAware="true"` on
+  the receiver and the application; a safe migration of the existing store at
+  first unlock; and a test of a reboot-before-unlock scenario. It belongs with
+  the store redesign — the Room migration — because it is the same storage
+  split, and it is not to be bolted onto the current preferences store. Found by
+  the 2026-09-05 review; ticket 26 removed the claim from the manifest and the
+  changelog, and ticket 16 recorded the decision.

@@ -63,6 +63,12 @@ The sweep at process start that brings alarms and notifications back in
 line with the store.
 _Avoid_: reschedule all, reshow, restore
 
+**First unlock**:
+The first time the user unlocks the device after a reboot. Before it the
+store is unreadable and the app cannot run, so nothing fires; Reconcile runs
+at first unlock at the earliest.
+_Avoid_: boot, logging in
+
 **Stale alarm**:
 An alarm whose expected due time no longer matches the store, or whose
 reminder is not in a state that can accept it. Ignored, never an error.

@@ -112,8 +112,8 @@
     <string name="preference_reminder_dialog_show">Show reminder dialog</string>
     <string name="preference_category_app">Run conditions</string>
     <string name="preference_run_on_boot">Activate on device startup</string>
-    <string name="preference_run_on_boot_summary_off">After a restart of the device, reminders will not be shown until opening the app.</string>
-    <string name="preference_run_on_boot_summary_on">Continue showing reminders after a restart of the device.</string>
+    <string name="preference_run_on_boot_summary_off">After a restart of the device, reminders will not be shown until the device is unlocked and the app is opened.</string>
+    <string name="preference_run_on_boot_summary_on">Continue showing reminders after a restart of the device, once it has been unlocked.</string>
     <string name="preference_disable_battery_optimization">Battery optimization</string>
     <string name="preference_disable_battery_optimization_summary_yes">Battery optimization is disabled for Ding - this should not be necessary on Android 12 when \"Alarms &amp; Reminders\" is allowed, but if reminders are otherwise not shown on time, this might help. Click to open settings.</string>
     <string name="preference_disable_battery_optimization_summary_yes_API33">Battery optimization is disabled for Ding - this should not be necessary anymore from Android 13 on, but if reminders are otherwise not shown on time, this might help. Click to open settings.</string>
