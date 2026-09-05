@@ -470,6 +470,47 @@ class ReminderCommandRunnerTest : FunSpec({
         (outcome as TransitionOutcome.Updated).reminder.id shouldBe 12
     }
 
+    // There are only so many ids: 0 to MAX_REMINDER_ID, two apart. A store that has
+    // handed out the last of them holds EXHAUSTED_ID_COUNTER, and there is nothing left
+    // to give. Add says so; it does not wind the counter back onto an id this install
+    // has already used, and it does not build a reminder Reminder itself refuses.
+
+    test("handing out the last id leaves none to give, and the next add is refused") {
+        val store = FakeStore(StoredReminders(emptyList(), nextId = Reminder.MAX_REMINDER_ID))
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        val added = runner.add(NOW + 60_000, "Water the plants", naggingRepeatInterval = 0)
+        val refused = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        (added as TransitionOutcome.Updated).reminder.id shouldBe Reminder.MAX_REMINDER_ID
+        // The counter the store is left with is the one it will be read back with.
+        store.read().stored.nextId shouldBe EXHAUSTED_ID_COUNTER
+        refused shouldBe TransitionOutcome.Refused(RefusalReason.IdSpaceExhausted)
+        store.writes shouldHaveSize 1
+        store.read().stored.reminders shouldHaveSize 1
+    }
+
+    test("the largest id there is anywhere in a quarantined value refuses the next add") {
+        // The id is not even a reminder's own here: it is nested in a shape that is not
+        // a list of reminders, so the store cannot be read at all. The scan counts it
+        // anyway, because erring upwards only ever skips ids that were never used — and
+        // upwards from the largest id there is leaves nothing to give.
+        val store = QuarantiningFakeStore(
+            """{"backup":[{"id":${Reminder.MAX_REMINDER_ID},"date":1,"text":"x"}]}""",
+            nextId = null
+        )
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.reconcileAll()
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        outcome shouldBe TransitionOutcome.Refused(RefusalReason.IdSpaceExhausted)
+        store.read().stored.nextId shouldBe EXHAUSTED_ID_COUNTER
+        executor.effects shouldBe emptyList()
+    }
+
     // Two stored reminders sharing an id cannot both be run on: they share one alarm
     // slot, one notification and one pending-intent request code. Reconcile over a
     // future SCHEDULED one and a DONE one would set the alarm for the first and cancel

@@ -45,6 +45,19 @@ import kotlinx.serialization.json.Json
  */
 const val KNOWN_STORED_REMINDERS_FORMAT_VERSION = 1
 
+/**
+ * The value the id counter holds once the largest id a reminder may have has been
+ * allocated: two past that id, and so no id left to give.
+ *
+ * This is a number the store writes by itself — every allocation moves the counter two
+ * past the id it handed out — so it is kept as it is wherever the counter is read,
+ * rebuilt or written, and never mistaken for damage. Winding it back would hand out an
+ * id this install has already used, whose notification, alarm and pending intents may
+ * still be live in the OS. An Add against it is refused instead, with
+ * [RefusalReason.IdSpaceExhausted].
+ */
+const val EXHAUSTED_ID_COUNTER = Reminder.MAX_REMINDER_ID + 2
+
 /** What the stored value turned out to be. */
 sealed interface DecodeResult {
     /** The stored value is this build's format and these are its reminders. */
@@ -169,27 +182,25 @@ fun readStore(
 /**
  * The counter the next reminder id is allocated from.
  *
- * A stored counter is used as it is when it can still do its one job: give an id that
- * is even, within range, and held by no stored reminder. Anything else — a value of
- * another type, an odd number, a number out of range, or one an existing reminder has
- * already passed — is recomputed from the reminders themselves, as the largest stored
- * id plus two, or 0 when there are none.
+ * Recovering a counter only ever moves it up. Both halves of what the store says are
+ * read as evidence of ids already handed out — the counter itself, and the largest id
+ * the reminders hold — and the answer is the larger of the two. Nothing is ever
+ * recomputed *down* to what the reminders alone suggest: an empty list is not evidence
+ * that no id was ever handed out, since every reminder in it may have been deleted, and
+ * the next Add would then take id 0. Since the id is the identity of the reminder, of
+ * its notification and of both its pending intents, it would replace whatever already
+ * holds it.
  *
- * Substituting 0 for a counter that cannot be read is the one thing this must not do:
- * the next Add would take id 0, and since the id is the identity of the reminder, of
- * its notification and of its alarms, it would replace whatever already holds it.
- * Recomputing keeps the only promise the id has to make.
+ * A counter that is not even is off by one from a number this app did write, so it is
+ * rounded up and used. A counter with no number in it that can mean anything — of
+ * another type, negative, or past [EXHAUSTED_ID_COUNTER], none of which this app ever
+ * wrote — contributes nothing, and the reminders answer alone. 0 comes out only when
+ * neither half says anything, which is the genuine first run.
  *
  * @param storedNextId null when the store holds no number at all.
  */
-fun nextIdToUse(storedNextId: Int?, reminders: List<Reminder>): Int {
-    val usable = storedNextId != null &&
-        storedNextId % 2 == 0 &&
-        storedNextId in 0..Reminder.MAX_REMINDER_ID &&
-        reminders.none { it.id >= storedNextId }
-    // Stored ids are even, so the largest one plus two is even as well.
-    return if (usable) storedNextId else reminders.maxOfOrNull { it.id + 2 } ?: 0
-}
+fun nextIdToUse(storedNextId: Int?, reminders: List<Reminder>): Int =
+    counterPast(storedNextId, reminders.maxOfOrNull { it.id })
 
 /**
  * The id counter to allocate from once an unreadable stored value has been set aside.
@@ -202,33 +213,50 @@ fun nextIdToUse(storedNextId: Int?, reminders: List<Reminder>): Int {
  * silently never fires. So the counter is durable on its own and a quarantine leaves it
  * alone.
  *
- * When the counter itself cannot be used — of another type, or a number outside the
- * range an id may take — the raw text being set aside is the only record left of which
- * ids were handed out, and it is scanned for `"id":<number>` occurrences. That scan is
- * best effort by nature: the text did not parse, which is why it is being set aside. It
- * errs upwards on purpose, since a match that is not really an id only skips an id that
- * was never used, while missing a real one hands it out twice. The answer is never
- * below the counter's own value either — an odd counter is rounded up, not down — so a
- * store that had already passed an id does not go back to it.
+ * The raw text being set aside is the other record of which ids were handed out, and it
+ * is scanned for `"id":<number>` occurrences. That scan is best effort by nature: the
+ * text did not parse, which is why it is being set aside. It errs upwards on purpose,
+ * since a match that is not really an id only skips an id that was never used, while
+ * missing a real one hands it out twice. The counter and the scan are the same two
+ * halves [nextIdToUse] weighs, read the same way, and the larger one wins.
  *
- * The one case with no answer at all is a counter of another type together with a value
- * that could not even be read as text: there the count starts again from 0.
+ * The one case with no answer at all is a counter with no usable number in it together
+ * with a value that could not even be read as text: there the count starts again from 0.
  *
  * @param storedNextId the counter as the store holds it, or null when there is no
  *   number there at all.
  * @param quarantinedRaw the value being set aside, or null when it could not be read as
  *   text.
  */
-fun nextIdAfterQuarantine(storedNextId: Int?, quarantinedRaw: String?): Int {
-    // A negative counter is not evidence that anything was allocated, and neither is an
-    // id outside the range a reminder may hold: the app could not have handed either out.
-    val fromCounter = storedNextId?.takeIf { it in 0..Reminder.MAX_REMINDER_ID } ?: 0
-    val fromReminders = largestStoredIdIn(quarantinedRaw)?.plus(2) ?: 0
-    val highest = maxOf(fromCounter, fromReminders)
+fun nextIdAfterQuarantine(storedNextId: Int?, quarantinedRaw: String?): Int =
+    counterPast(storedNextId, largestStoredIdIn(quarantinedRaw))
+
+/**
+ * The counter that is past both records of what was handed out: the stored counter and
+ * the largest id anything still says was allocated. Either may say nothing, and 0 —
+ * the first run — is what comes out when neither says anything at all.
+ *
+ * Stored ids are even, so the largest one plus two is even as well, and a counter that
+ * is not even is rounded up by [usableCounter]. The answer is therefore always even and
+ * never above [EXHAUSTED_ID_COUNTER].
+ */
+private fun counterPast(storedNextId: Int?, largestAllocatedId: Int?): Int =
+    maxOf(usableCounter(storedNextId) ?: 0, largestAllocatedId?.plus(2) ?: 0)
+
+/**
+ * The stored counter as a number that can be used, or null when it holds nothing this
+ * app could have written.
+ *
+ * [EXHAUSTED_ID_COUNTER] is the top of the range and is usable: it is what the store
+ * holds once the last id has been handed out, and an Add against it is refused rather
+ * than the counter lowered. A negative number, or one above that, is no record of an
+ * allocation at all, because the app could never have written it.
+ */
+private fun usableCounter(storedNextId: Int?): Int? = storedNextId
+    ?.takeIf { it in 0..EXHAUSTED_ID_COUNTER }
     // Ids are even. Rounding up rather than down is what keeps the answer from landing
     // back on an id the store had already gone past.
-    return if (highest % 2 == 0) highest else highest + 1
-}
+    ?.let { if (it % 2 == 0) it else it + 1 }
 
 /**
  * The largest even id in range that an `"id":<number>` occurrence in [raw] names, or

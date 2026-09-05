@@ -119,3 +119,73 @@ store anyway. Nothing was done about an install that actually exhausts the id sp
 largest allowed id, exactly as `nextIdToUse` already could, and the next Add would fail
 `Reminder`'s own `require`. That takes 500,001 reminders in one install to reach and is
 not this ticket's problem.
+
+## Review findings (2026-09-05)
+
+Two findings from the review of the work above, both accepted and both fixed in a
+worktree of their own. The theme is the same one the ticket started from, taken one
+step further: recovering the id counter may only ever move it *up*, and running out of
+ids is an answer rather than a crash.
+
+1. (high) **A readable store with an unusable counter still reset it.** `readStore`
+   sent the readable case through `nextIdToUse`, which used the stored counter only when
+   it was already perfect — even, in range, and past every stored id — and otherwise
+   recomputed it from the reminders alone. An empty list recomputed to 0. So a store
+   holding an odd counter of 41 and no reminders handed the next Add id 0, and an empty
+   list is exactly what a store looks like after every reminder has been deleted or
+   marked done and cleared, while their notifications, alarms and pending intents are
+   still live in the OS under the ids the counter handed out — the same cross-wiring
+   this ticket set out to close, reached by the other door. `StoreReadingTest` pinned
+   that reset. Fixed: recovery is monotonic. `nextIdToUse` and `nextIdAfterQuarantine`
+   are now one shared `counterPast(storedNextId, largestAllocatedId)`, which takes both
+   halves as evidence of ids already handed out and answers with the larger. Numeric
+   evidence is rounded upward to the next even value rather than discarded — 41 becomes
+   42 — and only a counter holding nothing this app could have written (of another type,
+   negative, or past the exhausted mark) contributes nothing, leaving the reminders to
+   answer alone. 0 comes out only when neither half says anything, which is the genuine
+   first run. Tests: *an odd counter over a readable but empty list is rounded up, not
+   reset* (the regression, through `nextIdToUse` and through `readStore`), *an odd
+   counter behind the stored reminders is moved past them*, and the two rewritten tests
+   *an id counter that cannot be read gives an id no stored reminder has* and *... starts
+   again from 0 when there are no reminders*, whose list of counters is now only those
+   with no usable number in them.
+2. (medium) **`MAX_REMINDER_ID + 2` was treated as damage.** It is what the counter
+   naturally holds once the largest allowed id has been allocated — every allocation
+   moves the counter two past the id it handed out — and the raw-text scan can produce
+   it as well, from an `"id":1000000` that is nested in something else or is not a
+   reminder's id at all. Both `nextIdToUse` and `nextIdAfterQuarantine` rejected it as
+   out of range and fell back to the reminders, so the counter dropped to 0 on an empty
+   store; and where it did survive, Add passed it into `Reminder`, whose own `require`
+   threw out of the add dialog. Fixed: `EXHAUSTED_ID_COUNTER` is a named constant in
+   `StoredReminderDecoding.kt`, the usable range for a stored counter is `0..` it, and
+   the counter is kept as it is wherever it is read, rebuilt or written. An Add against
+   it answers `Refused(IdSpaceExhausted)` — a new reason in the existing sealed
+   hierarchy, decided in `ReminderTransition.kt` with no Android import, checked before
+   the due time because it is the one the user cannot correct — and both dialogs show
+   the existing "could not save" message for it, the same one a store that did not
+   commit gets. Tests: *a counter with no id left to give survives a read*, *... survives
+   a quarantine*, *a raw value that cannot be scanned leaves a counter with no id left
+   alone*, *the largest id there is, found anywhere in the raw value, leaves none to
+   give*, and through the runner *handing out the last id leaves none to give, and the
+   next add is refused* and *the largest id there is anywhere in a quarantined value
+   refuses the next add*. In the transition function, *12. an add with no id left to give
+   is refused rather than built* and *13. the largest id there is can still be added*,
+   which keeps the bound itself allocatable.
+
+This retires the last paragraph of the resolution above: exhausting the id space is
+handled now, loudly, instead of being left to `Reminder`'s `require`.
+
+**Red first.** All seven new or rewritten assertions failed before the fixes, on exactly
+the two findings:
+
+```
+StoreReadingTest > an odd counter over a readable but empty list is rounded up, not reset
+    org.opentest4j.AssertionFailedError: expected:<42> but was:<0>
+StoreReadingTest > a counter with no id left to give survives a quarantine
+    org.opentest4j.AssertionFailedError: expected:<1000002> but was:<4>
+ReminderCommandRunnerTest > handing out the last id leaves none to give, and the next add is refused
+    java.lang.IllegalArgumentException: Id must be even, >= 0 and <= 1000000.
+```
+
+`docs/reminder-state-machine.md` gained the second refusal reason, the Add row for it,
+and a line saying the guards of a command are read in the order the table lists them.

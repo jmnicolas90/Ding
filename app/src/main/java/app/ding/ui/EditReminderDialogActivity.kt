@@ -26,6 +26,7 @@ import app.ding.ReminderManager
 import app.ding.ReminderStorage.ReminderNotFoundException
 import app.ding.ReminderStorage.getReminder
 import app.ding.state.PersistenceFailed
+import app.ding.state.RefusalReason
 import app.ding.state.TransitionOutcome
 import app.ding.state.editOrReschedule
 import app.ding.state.initialDueTimeForEdit
@@ -120,10 +121,18 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
                 makeToast(result.reminder)
                 completeActivity()
             }
-            // A due time that is not in the future is refused: say so and leave the
-            // dialog open so the time can be corrected.
-            is TransitionOutcome.Refused ->
-                Toast.makeText(this, R.string.add_reminder_toast_invalid_date, Toast.LENGTH_LONG).show()
+            is TransitionOutcome.Refused -> when (result.reason) {
+                // A due time that is not in the future: say so and leave the dialog
+                // open so the time can be corrected.
+                RefusalReason.PastDue ->
+                    Toast.makeText(this, R.string.add_reminder_toast_invalid_date, Toast.LENGTH_LONG).show()
+                // An edit allocates no id, so this cannot come from here; if it ever
+                // did, the user is told the change was not saved rather than nothing.
+                RefusalReason.IdSpaceExhausted -> {
+                    Log.e("EditReminder", "An edit was refused for want of an id: $result")
+                    Toast.makeText(this, R.string.error_msg_reminder_not_saved, Toast.LENGTH_LONG).show()
+                }
+            }
             // The store did not commit, so the reminder still holds what it held
             // before. Say so and leave the dialog open with the changes in it, so the
             // edit is not lost silently and pressing OK again is a real retry.

@@ -23,6 +23,7 @@ import app.ding.Prefs
 import app.ding.R
 import app.ding.ReminderManager.addReminder
 import app.ding.state.PersistenceFailed
+import app.ding.state.RefusalReason
 import app.ding.state.TransitionOutcome
 
 /**
@@ -41,10 +42,19 @@ class AddReminderDialogActivity : ReminderDialogActivity() {
                 completeActivity()
                 Prefs.setAddReminderDialogUsed(this)
             }
-            // A due time that is not in the future is refused: say so and leave the
-            // dialog open so the time can be corrected.
-            is TransitionOutcome.Refused ->
-                Toast.makeText(this, R.string.add_reminder_toast_invalid_date, Toast.LENGTH_LONG).show()
+            is TransitionOutcome.Refused -> when (result.reason) {
+                // A due time that is not in the future: say so and leave the dialog
+                // open so the time can be corrected.
+                RefusalReason.PastDue ->
+                    Toast.makeText(this, R.string.add_reminder_toast_invalid_date, Toast.LENGTH_LONG).show()
+                // No id left to give the reminder, which is not something the user can
+                // correct by changing what they typed. Same answer as a store that did
+                // not commit: the reminder could not be saved.
+                RefusalReason.IdSpaceExhausted -> {
+                    Log.e("AddReminder", "No reminder id is left to allocate; no reminder was added")
+                    Toast.makeText(this, R.string.error_msg_reminder_not_saved, Toast.LENGTH_LONG).show()
+                }
+            }
             // The store did not commit, so there is no reminder and no alarm. Say so
             // and leave the dialog open with what was typed, so nothing is lost
             // silently and pressing OK again is a real retry.

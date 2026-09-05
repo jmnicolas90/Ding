@@ -104,7 +104,7 @@ class StoreReadingTest : FunSpec({
     }
 
     // The id counter: never substituted with 0, because the next Add would take id 0
-    // and replace whatever already holds it.
+    // and replace whatever already holds it. Recovering it only ever moves it up.
 
     test("an id counter of the wrong type is recomputed from the stored reminders") {
         val reminders = listOf(reminder(0), reminder(2))
@@ -122,7 +122,7 @@ class StoreReadingTest : FunSpec({
     test("an id counter that cannot be read gives an id no stored reminder has") {
         val reminders = listOf(reminder(0), reminder(2), reminder(6))
 
-        forEachCorruptCounter { counter ->
+        forEachCounterWithNoNumberToUse { counter ->
             val nextId = nextIdToUse(counter, reminders)
 
             nextId shouldBe 8
@@ -133,9 +133,72 @@ class StoreReadingTest : FunSpec({
     }
 
     test("an id counter that cannot be read starts again from 0 when there are no reminders") {
-        forEachCorruptCounter { counter ->
+        // 0 is the genuine first run, and only a counter with no number in it at all
+        // may land there: there is nothing else to go on.
+        forEachCounterWithNoNumberToUse { counter ->
             nextIdToUse(counter, emptyList()) shouldBe 0
         }
+    }
+
+    test("an odd counter over a readable but empty list is rounded up, not reset") {
+        // The store is readable and holds no reminders, which is not evidence that no
+        // id was ever handed out: every reminder may have been deleted or marked done
+        // and cleared. Recomputing from the list would give the next Add id 0, whose
+        // notification, alarm and pending intents an older reminder may still hold.
+        nextIdToUse(storedNextId = 41, reminders = emptyList()) shouldBe 42
+
+        readStore(
+            readFormatVersion = { KNOWN_STORED_REMINDERS_FORMAT_VERSION },
+            readRawJson = { "[]" },
+            readNextId = { 41 }
+        ) shouldBe StoreReading(
+            StoredReminders(emptyList(), nextId = 42),
+            counterRepaired = true
+        )
+    }
+
+    test("an odd counter behind the stored reminders is moved past them") {
+        // Both halves are evidence and the larger one wins.
+        nextIdToUse(storedNextId = 41, reminders = listOf(reminder(60))) shouldBe 62
+    }
+
+    // The counter once the last id has been handed out. It holds MAX_REMINDER_ID + 2
+    // then, which is a number the store writes by itself rather than damage: winding it
+    // back would start giving out ids this install has already used.
+
+    test("a counter with no id left to give survives a read") {
+        readStore(
+            readFormatVersion = { KNOWN_STORED_REMINDERS_FORMAT_VERSION },
+            readRawJson = { "[]" },
+            readNextId = { EXHAUSTED_ID_COUNTER }
+        ) shouldBe StoreReading(StoredReminders(emptyList(), nextId = EXHAUSTED_ID_COUNTER))
+    }
+
+    test("a counter with no id left to give survives a quarantine") {
+        val raw = """[{"id":2,"date":1,"text":"x"}"""
+
+        nextIdAfterQuarantine(
+            storedNextId = EXHAUSTED_ID_COUNTER,
+            quarantinedRaw = raw
+        ) shouldBe EXHAUSTED_ID_COUNTER
+    }
+
+    test("a raw value that cannot be scanned leaves a counter with no id left alone") {
+        // Nothing to scan and nothing to fall back on: the counter is the whole record.
+        nextIdAfterQuarantine(
+            storedNextId = EXHAUSTED_ID_COUNTER,
+            quarantinedRaw = null
+        ) shouldBe EXHAUSTED_ID_COUNTER
+    }
+
+    test("the largest id there is, found anywhere in the raw value, leaves none to give") {
+        // Not a reminder's own id: it is nested in a shape that is not a list of
+        // reminders at all. The scan counts it anyway, because it errs upwards — and
+        // upwards from the largest id there is is the counter with nothing left.
+        val raw = """{"backup":[{"id":${Reminder.MAX_REMINDER_ID},"date":1,"text":"x"}]}"""
+
+        nextIdAfterQuarantine(storedNextId = null, quarantinedRaw = raw) shouldBe
+            EXHAUSTED_ID_COUNTER
     }
 
     test("a counter a stored reminder has already reached is recomputed past it") {
@@ -213,18 +276,20 @@ class StoreReadingTest : FunSpec({
         nextIdAfterQuarantine(storedNextId = null, quarantinedRaw = null) shouldBe 0
     }
 
-    test("the counter a quarantine leaves behind is always an allocatable id") {
+    test("the counter a quarantine leaves behind is an id, or the mark for having none") {
         listOf<Pair<Int?, String?>>(
             null to null,
             null to "this is not JSON",
             3 to """[{"id":5,"date":1}]""",
             -2 to "[]",
-            40 to """[{"id":6,"date":1}]"""
+            40 to """[{"id":6,"date":1}]""",
+            EXHAUSTED_ID_COUNTER to null,
+            null to """[{"id":${Reminder.MAX_REMINDER_ID},"date":1}]"""
         ).forEach { (counter, raw) ->
             val nextId = nextIdAfterQuarantine(counter, raw)
 
             (nextId % 2) shouldBe 0
-            (nextId >= 0) shouldBe true
+            (nextId in 0..EXHAUSTED_ID_COUNTER) shouldBe true
         }
     }
 
@@ -299,13 +364,18 @@ class StoreReadingTest : FunSpec({
     }
 })
 
-/** Every counter the store can hold that cannot allocate an id: the same answer for each. */
-private fun forEachCorruptCounter(check: (Int?) -> Unit) {
+/**
+ * Every counter the store can hold that carries no number the app can use: the same
+ * answer for each, and the only counters the reminders themselves have to answer for.
+ *
+ * An odd counter is not one of them. It is off by one from a number this app did write,
+ * so it is rounded up and used rather than thrown away.
+ */
+private fun forEachCounterWithNoNumberToUse(check: (Int?) -> Unit) {
     listOf(
         null, // of another type, or nothing at all
-        3, // odd, so it is not an id this app ever allocated
-        -2, // out of range
-        Reminder.MAX_REMINDER_ID + 2 // past the largest id a reminder may have
+        -2, // no id was ever negative
+        Reminder.MAX_REMINDER_ID + 4 // past even the counter that has run out of ids
     ).forEach(check)
 }
 

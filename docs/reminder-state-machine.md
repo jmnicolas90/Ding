@@ -76,8 +76,9 @@ Outcomes:
 - `Updated(reminder)` — write this reminder.
 - `Removed` — delete the reminder.
 - `Unchanged` — write nothing. Effects may still run (cleanup, re-show).
-- `Refused(reason)` — write nothing, run nothing. Currently one reason:
-  `PastDue`.
+- `Refused(reason)` — write nothing, run nothing. Two reasons: `PastDue`, and
+  `IdSpaceExhausted` for an Add when the store's id counter has passed the
+  largest id a reminder may hold and there is no id left to give.
 
 Effects, executed by the runner in order after a successful write:
 
@@ -96,8 +97,11 @@ Effects, executed by the runner in order after a successful write:
 time, or the stored state cannot accept the command. A stale command is
 always `Unchanged` with no effects: it is not an error.
 
+The guards of a command are read in the order they appear.
+
 | Command | Stored state | Guard | Outcome | Effects |
 |---|---|---|---|---|
+| Add | absent | no id left to give | Refused(IdSpaceExhausted) | – |
 | Add | absent | due > now | Updated, `SCHEDULED` | SetAlarm(due, Deliver) |
 | Add | absent | due ≤ now | Refused(PastDue) | – |
 | Deliver | `SCHEDULED` | expected == due | Updated, `NOTIFIED` | ShowNotification(Deliver); SetAlarm(nextNag(now), Nag) if nagging |

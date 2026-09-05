@@ -103,9 +103,9 @@ object ReminderManager {
      * assigned by the store.
      *
      * @return [TransitionOutcome.Updated] with the stored reminder,
-     *     [TransitionOutcome.Refused] if the due time is not in the future, or
-     *     [PersistenceFailed] if the store did not commit, in which case no reminder
-     *     was created and no alarm was set
+     *     [TransitionOutcome.Refused] if the due time is not in the future or the store
+     *     has no id left to give, or [PersistenceFailed] if the store did not commit —
+     *     in either failing case no reminder was created and no alarm was set
      */
     @JvmStatic
     fun addReminder(context: Context, reminderBuilder: Reminder.Builder): CommandResult =

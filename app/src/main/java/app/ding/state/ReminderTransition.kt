@@ -132,7 +132,17 @@ sealed interface TransitionOutcome : CommandResult {
 /** Why a command was refused. */
 enum class RefusalReason {
     /** The requested due time is not in the future. */
-    PastDue
+    PastDue,
+
+    /**
+     * There is no id left to give a new reminder: the counter has reached
+     * [EXHAUSTED_ID_COUNTER], two past the largest id a reminder may hold. An id is
+     * the identity of a reminder, of its notification and of both its pending intents
+     * at once, and is never handed out twice within an install, so the only honest
+     * answer is to refuse the reminder. Lowering the counter would give the new
+     * reminder an id whose notification and alarms may still be live.
+     */
+    IdSpaceExhausted
 }
 
 /** Which alarm occupies a reminder's alarm slot. */
@@ -211,6 +221,12 @@ fun transition(stored: Reminder?, command: ReminderCommand, now: Long): Transiti
 }
 
 private fun add(command: ReminderCommand.Add, now: Long): TransitionResult {
+    // Asked before the due time because it is the answer the user cannot do anything
+    // about: correcting the time would only lead to the same wall. The counter is left
+    // where it is, and Reminder's own require never sees an id it would refuse.
+    if (command.reminderId > Reminder.MAX_REMINDER_ID) {
+        return TransitionResult(TransitionOutcome.Refused(RefusalReason.IdSpaceExhausted))
+    }
     if (command.dueTime <= now) {
         return TransitionResult(TransitionOutcome.Refused(RefusalReason.PastDue))
     }
