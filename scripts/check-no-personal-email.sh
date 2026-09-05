@@ -14,8 +14,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# Fails when an email address appears in a tracked file, in the identity the
-# next commit would carry, or anywhere in the commits this fork authored.
+# Fails when an email address appears in a tracked file, in the staged index, in
+# the identity the next commit would carry, or anywhere in the commits this fork
+# authored.
 #
 # CLAUDE.md's constraint is "no personal email address anywhere" — not in the
 # tree, not in commit metadata, not in published artifacts. This is the
@@ -24,45 +25,59 @@
 # address that reaches a push is published to harvesters the moment it lands,
 # and taking it back means rewriting history.
 #
-# Three checks, and all three run: the script reports everything it finds
-# rather than stopping at the first hit, so one run tells you the whole job.
+# Four checks, and all four run: the script reports everything it finds rather
+# than stopping at the first hit, so one run tells you the whole job.
 #
 #   1. Every tracked file in the working tree.
-#   2. The author and committer identity the *next* commit would carry, which
-#      is the one check that fires before anything has been written. It is
-#      silent where no identity is configured at all, because that is a
-#      checkout nobody commits from rather than an address anybody chose.
-#   3. Every commit this fork authored — author, committer, the whole message
+#   2. Every tracked file as it is staged in the index. The index is not the
+#      working tree: `git add -p` can stage a hunk holding an address while the
+#      file on disk is being cleaned up around it, and the commit takes what is
+#      staged. Without this check that commit lands after a green gate.
+#   3. The author and committer identity the *next* commit would carry, which
+#      is the one check that fires before anything has been written.
+#   4. Every commit this fork authored — author, committer, the whole message
 #      including its trailers, and the commit's own tree. The tree matters
 #      because a clone receives every historical blob: an address that was
 #      committed and redacted two commits later is still published, and only
 #      this check sees it.
 #
-# Check 3 needs real history, so a shallow clone or a clone missing either of
+# Check 4 needs real history, so a shallow clone or a clone missing either of
 # the two commits that bound upstream's history is a failure, not a pass — the
 # check must not look green exactly where it can see the least. That is why
 # .github/workflows/ci.yml sets fetch-depth: 0 on its checkout.
 #
 # Upstream's own commits carry the upstream author's address. They are excluded
-# by commit range, never by naming an address here, which would put in this
-# file the very thing the file exists to keep out of the repo.
+# from check 4 by commit range — by reachability, never by naming an address
+# here, which would put in this file the very thing the file exists to keep out
+# of the repo.
 #
-# The range alone is not quite enough for the historical trees, because the
-# fork's early commits carry upstream's files unchanged — the upstream author's
-# address sat in Main.kt from the fork point until ticket 06 deleted it, so
-# every fork commit before that has it in its tree. Reporting those is noise: a
-# clone receives that address from upstream's own commits, which are in this
-# repo's ancestry for good (the v0.9.x tags hang off them), so rewriting the
-# fork's commits would not take it back. Check 3 therefore passes over an
-# address that upstream's own trees already contain. That set is read out of
-# the two excluded commits at run time — the same by-reachability rule as the
-# commit range, and still no address written down here.
+# The scan of the historical trees is the one place that rule is knowingly
+# relaxed, and there it is relaxed by address value. Here is why. The fork's
+# early commits carry upstream's files unchanged, so upstream's author address
+# sits in the fork's own trees as well as in upstream's: in one source file from
+# the fork point until ticket 06 deleted it, and in the fork's copy of ticket 06
+# until that quote was redacted. Run strictly, the check reports every one of
+# those commits and can never go green — and since it is the first stage of the
+# gate, no commit could ever be made to fix it.
 #
-# The exemption is deliberately narrow. It applies to the historical trees and
-# to nothing else: check 1 holds every address in the working tree to account,
-# including upstream's, which is what ticket 06 removed and what must not come
-# back; and a commit message is written by us, so nothing excuses an address in
-# one.
+# Relaxing it gives up nothing that could still be recovered. The history
+# rewrite of 2026-09-05 deliberately removed the maintainer's own address and
+# only that. Upstream's author address is inherited history: it reaches every
+# clone through upstream's own commits, which stay in this repo's ancestry for
+# good — the v0.9.x tags hang off them — so no rewrite of the fork's commits
+# would unpublish it. Reporting it forever would buy nothing and would bury real
+# findings under noise.
+#
+# So the historical trees pass over exactly the set of address values the two
+# boundary trees hold. That set is read out of those two commits at run time and
+# is never written into this file, so this file still names no address.
+#
+# The exemption is deliberately narrow: historical trees and nothing else. Not
+# the working tree, not the index, not an identity, not a commit message. A fork
+# commit that copies that address into a new file is caught before it can land,
+# by checks 1 and 2 on the tree and on the index; only the after-the-fact scan
+# of history tolerates it, and only because history is the one place the fork
+# cannot put it right.
 #
 # Both scripts/check.sh (stage G1) and .github/workflows/ci.yml run this one
 # file, so the pattern, the allowlist and the commit range live in a single
@@ -75,20 +90,34 @@
 #   - app/src/main/assets/open_source_licenses.html — generated from LICENSE.md
 #     by scripts/generate-open-source-licenses.sh, so it can only ever carry
 #     what LICENSE.md already carries.
-#   - any address containing "noreply" — the GitHub and vendor no-reply
-#     addresses that commits and co-author trailers are signed with. The test
-#     is on the matched address itself and not on the line it sits on, so a
-#     real address cannot hide beside a no-reply one.
+#   - a no-reply address, as is_no_reply_address defines it and nothing wider:
+#     the forge and vendor no-reply addresses that commits and co-author
+#     trailers are signed with. The test is on the matched address itself and
+#     not on the line it sits on, so a real address cannot hide beside a
+#     no-reply one.
 # The GPL copyright headers are deliberately NOT allowlisted: they carry names,
 # not addresses. If one ever gains an address, the header is the thing to fix.
 #
 # It reports the commit, the file and the line number and never prints the
 # address itself, so a failing gate does not republish what it just caught.
+# That is also why tracing is turned off below and never turned back on, and why
+# no comment in this file spells out an example address: this script is itself a
+# tracked file, and check 1 reads it like any other.
+
+# An inherited `bash -x` would print every matched address to stderr, which is
+# exactly the republishing this script exists to prevent. Off before anything
+# else runs, and nothing here turns it back on.
+set +x
 set -euo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-address_pattern='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}'
+# Case-insensitive on both sides: the character classes accept either case, and
+# every grep below is given -i as well. Either alone would do; together, neither
+# a future edit to the pattern nor a dropped flag at one call site can quietly
+# let an all-capitals address through, which the lowercase-only top-level domain
+# this pattern used to end in did.
+address_pattern='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 
 # Paths where an address would be attribution the licence requires.
 attribution_paths=(
@@ -107,31 +136,64 @@ upstream_main_tip='62ef3e8'
 
 failures=0
 
-# Report one problem. Every argument is printed on its own line, so a caller
-# can pass the headline, the hits and the advice as separate strings.
+# Report one problem. Every argument is printed on its own line, so a caller can
+# pass the headline, the hits and the advice as separate strings. Callers pass
+# locations, never the text that matched.
 fail() {
   printf '%s\n' "$@" >&2
   failures=$((failures + 1))
 }
 
-# Print "file:line" for every address in a tree that is neither a no-reply one
-# nor one of the exempt addresses, prefixed with the revision when one is
-# given. $1 is the newline-separated exempt set, which is empty for every
-# caller but the historical trees; the rest is passed through to git grep, so
-# no further argument means the working tree and one revision means that
-# commit's tree. Returns 2 when git grep itself failed.
+# The one test for "this is a no-reply address", used by every check, so there
+# is a single answer to the question rather than one answer per call site.
 #
-# git grep searches tracked files only, which is the same set as `git ls-files`;
-# -I skips binaries so an APK-shaped blob cannot produce a false match. With -o
-# each match is its own output line ending in the matched address, which is what
-# lets the no-reply and exempt tests look at the address rather than at the
-# whole line — a real address cannot hide beside an allowed one.
+# Strict on purpose. The old test asked whether the address *contained*
+# "noreply", which a real mailbox can trivially arrange: put the word in the
+# local part beside a real name, or register a domain with the word in it, and a
+# deliverable address walks through the gate. An address qualifies here only
+# when its local part is exactly "noreply", or its domain is exactly GitHub's
+# per-user no-reply domain. Anything else is a hit. Both halves are compared
+# lowercased, because neither a local part nor a domain is case-sensitive in any
+# address this repo signs with.
+is_no_reply_address() {
+  local address="$1" local_part domain
+  local_part="${address%@*}"
+  domain="${address#*@}"
+  [ "${local_part,,}" = 'noreply' ] || [ "${domain,,}" = 'users.noreply.github.com' ]
+}
+
+# The address values upstream's own boundary trees hold, lowercased. Filled by
+# read_upstream_published_addresses and read by the historical-tree scan alone.
+declare -A upstream_published_addresses=()
+
+# Print "file:line" for every address that is neither a no-reply one nor, where
+# asked, one upstream already published; prefixed with the revision when the
+# scan is of a commit. $1 says where to look: "worktree", "index", or a commit
+# id. $2 is "none" or "upstream" and picks the exemption. Returns 2 when git
+# grep itself failed.
+#
+# The three callers differ only in those two arguments, so the pattern and the
+# flags are spelled once and cannot drift between the tree, the index and
+# history. --cached has to go before the pattern; a revision has to go after it,
+# or git grep reads the option as a revision and fails.
+#
+# git grep searches tracked files only, which is the same set as `git ls-files`.
+# -a treats every blob as text: the -I it replaces skipped whatever git calls
+# binary, so a file holding one NUL byte and an address sailed through the gate.
+# With -o each match is its own output line ending in the matched address, which
+# is what lets the tests below look at the address rather than at the whole line
+# — a real address cannot hide beside an allowed one.
 addresses_in_tree() {
-  local exempt="$1"
-  shift
-  local raw status
+  local where="$1" exemption="$2"
+  local raw status line location address
+  local -a grep_args=(-naoEi "$address_pattern")
+  case "$where" in
+    worktree) ;;
+    index) grep_args=(--cached "${grep_args[@]}") ;;
+    *) grep_args+=("$where") ;;
+  esac
   set +e
-  raw="$(git grep -nIoE "$address_pattern" "$@" -- "${attribution_paths[@]}")"
+  raw="$(git grep "${grep_args[@]}" -- "${attribution_paths[@]}")"
   status=$?
   set -e
   # git grep exits 1 for "no matches", which is the good case here. Anything
@@ -139,46 +201,67 @@ addresses_in_tree() {
   if [ "$status" -gt 1 ]; then
     return 2
   fi
+  if [ -z "$raw" ]; then
+    return 0
+  fi
   # The matched address is the last colon-separated field and can hold no colon
   # itself, so dropping that field leaves the location however many colons the
-  # path contains. The exempt set goes through the environment rather than
-  # through -v so awk does not read escape sequences in it.
-  printf '%s\n' "$raw" | EXEMPT_ADDRESSES="$exempt" awk -F: '
-    BEGIN {
-      count = split(ENVIRON["EXEMPT_ADDRESSES"], list, "\n")
-      for (i = 1; i <= count; i++) if (list[i] != "") exempt[list[i]] = 1
-    }
-    $0 == "" { next }
-    index($NF, "noreply") != 0 { next }
-    $NF in exempt { next }
-    { sub(/:[^:]*$/, ""); print }
-  '
+  # path contains.
+  while IFS= read -r line; do
+    if [ -z "$line" ]; then
+      continue
+    fi
+    address="${line##*:}"
+    location="${line%:*}"
+    if is_no_reply_address "$address"; then
+      continue
+    fi
+    if [ "$exemption" = 'upstream' ] \
+      && [ -n "${upstream_published_addresses[${address,,}]+set}" ]; then
+      continue
+    fi
+    printf '%s\n' "$location"
+  done <<< "$raw"
 }
 
-# Every address upstream's own trees hold, read out of the two excluded commits
-# rather than written down. These are upstream's to publish and are in this
-# repo's ancestry for good, so the fork's early commits carrying them is not
-# something the fork can put right.
-addresses_upstream_published() {
-  local boundary raw status all=''
+# Read the exempt set out of the two boundary trees. Same pattern and same flags
+# as the scans, so every address the historical scan can match is one this can
+# match too; without that, an inherited file would produce a hit no exemption
+# could ever cover. No path exclusions: an address upstream published is
+# published whichever of its files holds it. Returns 1 when git grep failed or
+# when the set came out empty, because an empty set would silently turn the
+# exemption off rather than mean there is nothing to exempt.
+read_upstream_published_addresses() {
+  local boundary raw status line address
   for boundary in "$fork_point" "$upstream_main_tip"; do
     set +e
-    raw="$(git grep -nIoE "$address_pattern" "$boundary")"
+    raw="$(git grep -naoEi "$address_pattern" "$boundary")"
     status=$?
     set -e
     if [ "$status" -gt 1 ]; then
-      return 2
+      return 1
     fi
-    all="$all$raw"$'\n'
+    if [ -z "$raw" ]; then
+      continue
+    fi
+    while IFS= read -r line; do
+      if [ -z "$line" ]; then
+        continue
+      fi
+      address="${line##*:}"
+      upstream_published_addresses["${address,,}"]=1
+    done <<< "$raw"
   done
-  printf '%s\n' "$all" | awk -F: '$0 != "" { print $NF }' | sort -u
+  if [ "${#upstream_published_addresses[@]}" -eq 0 ]; then
+    return 1
+  fi
 }
 
 # 1. The working tree. No exemption: an address upstream published is still an
 # address this fork would be shipping.
 check_working_tree() {
   local hits status=0
-  hits="$(addresses_in_tree '')" || status=$?
+  hits="$(addresses_in_tree worktree none)" || status=$?
   if [ "$status" -ne 0 ]; then
     fail "✗ git grep failed while searching the working tree"
     return
@@ -187,39 +270,78 @@ check_working_tree() {
     fail "✗ email address in tracked files (file and line only, address withheld):" \
          "$(printf '%s\n' "$hits" | sed 's/^/    /')" \
          "  If it is attribution the licence requires, it belongs in LICENSE.md," \
-         "  LICENSES/ or CONTRIBUTORS.md. Otherwise remove it."
+         "  LICENSES/ or CONTRIBUTORS.md. Otherwise remove it." \
+         "  Line numbers are the working tree's; check 2 reports the index separately."
   fi
 }
 
-# 2. The identity the next commit would carry. git var applies the same
-# precedence a commit does — the environment, then repo config, then global —
-# so this is the address that would actually be written, and asking git beats
+# 2. The index, which is what a commit actually takes. Same scan, same
+# allowlist, no exemption — only the content differs, and it differs exactly in
+# the case this catches: a hunk staged out of a file that has since been cleaned
+# up on disk.
+check_index() {
+  local hits status=0
+  hits="$(addresses_in_tree index none)" || status=$?
+  if [ "$status" -ne 0 ]; then
+    fail "✗ git grep failed while searching the index"
+    return
+  fi
+  if [ -n "$hits" ]; then
+    fail "✗ email address staged in the index (file and line only, address withheld):" \
+         "$(printf '%s\n' "$hits" | sed 's/^/    /')" \
+         "  The line numbers are the staged content's, not the working tree's." \
+         "  fix: unstage it (git restore --staged <file>) and remove it."
+  fi
+}
+
+# 3. The identity the next commit would carry. git var applies the same
+# precedence a commit does — the environment, then repo config, then global — so
+# this is the address that would actually be written, and asking git beats
 # reimplementing that order here.
 #
 # user.useConfigOnly stops git falling back to a guess made from the login name
-# and the host, which is how the check tells "somebody configured an address"
-# from "nobody has said anything". Only the first is this check's business: a
-# guess is not a personal address, nothing is configured on a CI checkout, and
-# nothing commits there anyway. A commit made under a guessed identity is still
-# caught, by check 3, on the next run of the gate and so before any push.
+# and the host, so a failure here means "nobody configured an address", not "the
+# address is fine". That is a failure too. This check has one job, to know what
+# the next commit would be signed with, and it either knows or it does not;
+# treating "cannot tell" as a pass makes the gate green exactly where it is
+# blindest. A checkout with no identity is one where the next commit is signed
+# with whatever git can piece together, and the way to find that out is to
+# configure it, not to skip the question.
+#
+# The one place that reasoning does not hold is a hosted CI runner, which
+# configures no identity and never commits; that case is handled at the call
+# site, once, and out loud.
 check_next_commit_identity() {
-  local role="$1" git_variable="$2" ident address
-  ident="$(git -c user.useConfigOnly=true var "$git_variable" 2>/dev/null)" || return 0
+  local role="$1" git_variable="$2" ident address status=0
+  ident="$(git -c user.useConfigOnly=true var "$git_variable" 2>/dev/null)" || status=$?
+  if [ "$status" -ne 0 ]; then
+    fail "✗ git cannot say what $role address the next commit would carry" \
+         "  With user.useConfigOnly that means no address is configured here." \
+         "  fix: git config user.email with your forge's no-reply address"
+    return
+  fi
   # An identity is "Name <address> timestamp zone", and a name may itself hold
-  # an angle bracket, so take what lies between the last < and the next >.
+  # an angle bracket, so take what lies between the last < and the next >. An
+  # identity without both brackets is one this check cannot read, which is the
+  # same "cannot tell" as above and gets the same answer.
+  case "$ident" in
+    *'<'*'>'*) ;;
+    *) fail "✗ the $role identity the next commit would carry is not in a readable form" \
+            "  expected: Name <address> timestamp zone"
+       return ;;
+  esac
   address="${ident##*<}"
   address="${address%%>*}"
-  case "$address" in
-    *noreply*) ;;
-    *) fail "✗ the next commit's $role address is not a no-reply address (address withheld)" \
-            "  fix: git config user.email with your forge's no-reply address" ;;
-  esac
+  if ! is_no_reply_address "$address"; then
+    fail "✗ the next commit's $role address is not a no-reply address (address withheld)" \
+         "  fix: git config user.email with your forge's no-reply address"
+  fi
 }
 
-# 3. Every commit the fork authored.
+# 4. Every commit the fork authored.
 check_fork_commits() {
   local missing=0 boundary commits commit metadata author committer message
-  local message_lines hits status inherited
+  local message_lines match address hits status
 
   if [ "$(git rev-parse --is-shallow-repository)" != "false" ]; then
     fail "✗ shallow clone: the fork's own commits cannot be checked" \
@@ -243,10 +365,9 @@ check_fork_commits() {
     return
   fi
 
-  status=0
-  inherited="$(addresses_upstream_published)" || status=$?
-  if [ "$status" -ne 0 ]; then
-    fail "✗ git grep failed while reading the addresses upstream published"
+  if ! read_upstream_published_addresses; then
+    fail "✗ could not read the addresses upstream's own commits already publish" \
+         "  fix: fetch this repository's full history"
     return
   fi
 
@@ -256,28 +377,35 @@ check_fork_commits() {
     committer="$(printf '%s\n' "$metadata" | sed -n 2p)"
     message="$(printf '%s\n' "$metadata" | sed -n '3,$p')"
 
-    case "$author" in
-      *noreply*) ;;
-      *) fail "✗ commit $commit: author address is not a no-reply address (address withheld)" ;;
-    esac
-    case "$committer" in
-      *noreply*) ;;
-      *) fail "✗ commit $commit: committer address is not a no-reply address (address withheld)" ;;
-    esac
+    if ! is_no_reply_address "$author"; then
+      fail "✗ commit $commit: author address is not a no-reply address (address withheld)"
+    fi
+    if ! is_no_reply_address "$committer"; then
+      fail "✗ commit $commit: committer address is not a no-reply address (address withheld)"
+    fi
 
     # The whole message, subject and body and trailers alike, so a
-    # Co-authored-by line with a personal address is caught like any other.
-    # grep exits 1 when the message holds no address at all, which is the good
-    # case and must not trip pipefail.
-    message_lines="$(printf '%s\n' "$message" \
-      | { grep -noE "$address_pattern" || true; } \
-      | awk -F: 'index($NF, "noreply") == 0 { print $1 }')"
+    # Co-authored-by line with a personal address is caught like any other. No
+    # exemption here: we write our own commit messages. grep exits 1 when the
+    # message holds no address at all, which is the good case and must not trip
+    # pipefail.
+    message_lines=''
+    while IFS= read -r match; do
+      if [ -z "$match" ]; then
+        continue
+      fi
+      address="${match##*:}"
+      if is_no_reply_address "$address"; then
+        continue
+      fi
+      message_lines="$message_lines${match%%:*} "
+    done < <(printf '%s\n' "$message" | { grep -naoEi "$address_pattern" || true; })
     if [ -n "$message_lines" ]; then
-      fail "✗ commit $commit: email address in the commit message, at message line(s) $(printf '%s' "$message_lines" | tr '\n' ' ')"
+      fail "✗ commit $commit: email address in the commit message, at message line(s) ${message_lines% }"
     fi
 
     status=0
-    hits="$(addresses_in_tree "$inherited" "$commit")" || status=$?
+    hits="$(addresses_in_tree "$commit" upstream)" || status=$?
     if [ "$status" -ne 0 ]; then
       fail "✗ git grep failed while searching the tree of commit $commit"
     elif [ -n "$hits" ]; then
@@ -288,8 +416,17 @@ check_fork_commits() {
 }
 
 check_working_tree
-check_next_commit_identity author GIT_AUTHOR_IDENT
-check_next_commit_identity committer GIT_COMMITTER_IDENT
+check_index
+# A hosted runner has no configured identity and never commits, so there is no
+# "next commit" for check 3 to be about. Skipping it there is the one exception
+# to treating an unreadable identity as a failure; it is announced rather than
+# silent, and what was actually pushed is still covered by check 4.
+if [ "${GITHUB_ACTIONS:-}" = 'true' ]; then
+  echo "· GITHUB_ACTIONS=true: skipping the next-commit identity check (nothing commits on a hosted runner; check 4 covers what was pushed)"
+else
+  check_next_commit_identity author GIT_AUTHOR_IDENT
+  check_next_commit_identity committer GIT_COMMITTER_IDENT
+fi
 check_fork_commits
 
 if [ "$failures" -ne 0 ]; then
