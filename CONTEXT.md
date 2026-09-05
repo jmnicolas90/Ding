@@ -60,10 +60,11 @@ _Avoid_: remove, cancel
 
 **Reconcile**:
 The sweep that brings alarms and notifications back in line with the store.
-Three things ask for it: every process start; the user granting the
+Four things ask for it: every process start; the user granting the
 notification permission, which is what makes a delivery that was suppressed
-while it was denied appear; and an alarm arriving with a payload the app
-cannot read.
+while it was denied appear; the exact-alarm access changing on Android 12 and
+12L, where revoking it deletes the app's alarms outright; and an alarm arriving
+with a payload the app cannot read.
 _Avoid_: reschedule all, reshow, restore
 
 **First unlock**:

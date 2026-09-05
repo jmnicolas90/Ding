@@ -174,11 +174,13 @@ object ReminderManager {
      * every future reminder, deliver every past-due one, re-show every reminder that
      * was delivered and not dealt with.
      *
-     * Three things ask for it, and `docs/reminder-state-machine.md` lists the same
-     * three: every process start, from `Main.onCreate`; the user granting
+     * Four things ask for it, and `docs/reminder-state-machine.md` lists the same
+     * four: every process start, from `Main.onCreate`; the user granting
      * `POST_NOTIFICATIONS`, which is what puts a delivery the denied permission
-     * swallowed back on screen; and [processReminderAction] when an alarm arrives
-     * carrying a payload it cannot read.
+     * swallowed back on screen; the exact-alarm access changing on Android 12 and 12L,
+     * where the revocation deletes the app's alarms (see [ExactAlarmPermissionReceiver]);
+     * and [processReminderAction] when an alarm arrives carrying a payload it cannot
+     * read.
      */
     @JvmStatic
     fun reconcileAllReminders(context: Context) {
