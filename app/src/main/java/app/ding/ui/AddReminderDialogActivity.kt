@@ -22,6 +22,7 @@ import android.widget.Toast
 import app.ding.Prefs
 import app.ding.R
 import app.ding.ReminderManager.addReminder
+import app.ding.state.PersistenceFailed
 import app.ding.state.TransitionOutcome
 
 /**
@@ -34,9 +35,9 @@ class AddReminderDialogActivity : ReminderDialogActivity() {
     }
 
     override fun onDone() {
-        when (val outcome = addReminder(this, buildReminderWithTimeTextNagging())) {
+        when (val result = addReminder(this, buildReminderWithTimeTextNagging())) {
             is TransitionOutcome.Updated -> {
-                makeToast(outcome.reminder)
+                makeToast(result.reminder)
                 completeActivity()
                 Prefs.setAddReminderDialogUsed(this)
             }
@@ -44,8 +45,16 @@ class AddReminderDialogActivity : ReminderDialogActivity() {
             // dialog open so the time can be corrected.
             is TransitionOutcome.Refused ->
                 Toast.makeText(this, R.string.add_reminder_toast_invalid_date, Toast.LENGTH_LONG).show()
-            // Nothing was stored. Telling the user that is ticket 12's typed failure.
-            else -> Log.e("AddReminder", "The reminder was not stored: $outcome")
+            // The store did not commit, so there is no reminder and no alarm. Say so
+            // and leave the dialog open with what was typed, so nothing is lost
+            // silently and pressing OK again is a real retry.
+            PersistenceFailed -> {
+                Log.e("AddReminder", "The store did not commit; no reminder was added")
+                Toast.makeText(this, R.string.error_msg_reminder_not_saved, Toast.LENGTH_LONG).show()
+            }
+            // Add either creates the reminder or refuses it; these cannot happen.
+            TransitionOutcome.Removed, TransitionOutcome.Unchanged ->
+                Log.e("AddReminder", "The reminder was not stored: $result")
         }
     }
 }

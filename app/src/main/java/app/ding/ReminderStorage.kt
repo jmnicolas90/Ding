@@ -53,6 +53,16 @@ object ReminderStorage {
             )
         }
 
+        /**
+         * Writes the reminder list and the id counter in one commit, and returns
+         * whether that commit went through.
+         *
+         * `commit()` rather than `apply()` on purpose, which is what the lint
+         * suppression is for: `apply()` writes in the background and returns nothing,
+         * so a durable write that fails is invisible. Here the answer is the whole
+         * point — a false makes the runner stop before it announces the change or
+         * sets an alarm for a reminder that is not stored.
+         */
         @SuppressLint("ApplySharedPref")
         override fun write(stored: StoredReminders): Boolean =
             Prefs.getStatePrefs(context).edit()

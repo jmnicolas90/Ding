@@ -31,6 +31,31 @@ import java.util.concurrent.locks.ReentrantLock
 /** The stored reminders, together with the counter that allocates the next reminder id. */
 data class StoredReminders(val reminders: List<Reminder>, val nextId: Int)
 
+/**
+ * What running one command did: one of the transition function's outcomes, or
+ * [PersistenceFailed].
+ *
+ * The failure is a case of its own rather than [TransitionOutcome.Unchanged],
+ * because "nothing needed doing" and "the write did not happen" are opposite
+ * answers to the caller: the first is safe to ignore, the second means the user
+ * asked for something and did not get it. Callers match on this type without an
+ * `else`, so the compiler asks every one of them what it does about a failed write.
+ */
+sealed interface CommandResult
+
+/** What a reconciliation sweep did. */
+sealed interface ReconcileResult {
+    /** The sweep ran; one outcome per stored reminder, in store order. */
+    data class Reconciled(val outcomes: List<TransitionOutcome>) : ReconcileResult
+}
+
+/**
+ * The store did not commit, so nothing happened at all: nothing was written, no
+ * change was announced, no effect ran. Every reminder keeps the state it has on
+ * disk, which is what makes the failure safe to retry.
+ */
+data object PersistenceFailed : CommandResult, ReconcileResult
+
 /** Where reminders are kept. */
 interface ReminderStore {
     /** Read the whole store. */
@@ -59,13 +84,13 @@ class ReminderCommandRunner(
     private val lock = ReentrantLock()
 
     /** Run one command and return what it did to the store. */
-    fun run(command: ReminderCommand): TransitionOutcome = runCommand { command }
+    fun run(command: ReminderCommand): CommandResult = runCommand { command }
 
     /**
      * Add a reminder. The id comes from the store's counter, read under the same
      * lock as the write, so two additions cannot be given the same id.
      */
-    fun add(dueTime: Long, text: String, naggingRepeatInterval: Int): TransitionOutcome =
+    fun add(dueTime: Long, text: String, naggingRepeatInterval: Int): CommandResult =
         runCommand { stored ->
             ReminderCommand.Add(stored.nextId, dueTime, text, naggingRepeatInterval)
         }
@@ -74,7 +99,7 @@ class ReminderCommandRunner(
      * Bring alarms and notifications back in line with the store, for every stored
      * reminder. Runs once per process start, before any other component.
      */
-    fun reconcileAll(): List<TransitionOutcome> {
+    fun reconcileAll(): ReconcileResult {
         lock.lock()
         val outcomes: List<TransitionOutcome>
         val effects: List<ReminderEffect>
@@ -97,9 +122,9 @@ class ReminderCommandRunner(
                 if (!written) {
                     // Persist first: a store that did not commit gets no announcement
                     // and no effects at all, because the reminders it just delivered
-                    // are still scheduled on disk. Nothing happened, so nothing is
-                    // reported. Ticket 12 turns this into a typed failure.
-                    return emptyList()
+                    // are still scheduled on disk. The sweep is reported as failed
+                    // rather than as a sweep that found nothing to do.
+                    return PersistenceFailed
                 }
             }
         } finally {
@@ -109,10 +134,10 @@ class ReminderCommandRunner(
             store.announceChange()
         }
         effects.forEach(effectExecutor::execute)
-        return outcomes
+        return ReconcileResult.Reconciled(outcomes)
     }
 
-    private fun runCommand(makeCommand: (StoredReminders) -> ReminderCommand): TransitionOutcome {
+    private fun runCommand(makeCommand: (StoredReminders) -> ReminderCommand): CommandResult {
         lock.lock()
         val result: TransitionResult
         var written = false
@@ -126,9 +151,10 @@ class ReminderCommandRunner(
                 written = store.write(toWrite)
                 if (!written) {
                     // The write did not commit, so the decision never happened: no
-                    // announcement, no effects. Reporting the failure to the caller as
-                    // a typed result is ticket 12.
-                    return TransitionOutcome.Unchanged
+                    // announcement, no effects, and a failure the caller has to answer
+                    // for. Reporting it as Unchanged would let a caller schedule an
+                    // alarm for a reminder that is not in the store.
+                    return PersistenceFailed
                 }
             }
         } finally {
