@@ -99,6 +99,25 @@ debuggable and therefore skips R8's optimization and obfuscation passes, so
 release-only breakage is invisible until that stage. The first run in a
 fresh worktree is slow (several minutes); later runs are much faster.
 
+G3 runs two kinds of test in one JVM run. The pure layer — the transition
+function, the command runner, the settings decoders — stays Kotest specs, with
+no Android on the classpath at all. The Android half is plain JUnit 4 classes
+under Robolectric, which the JUnit vintage engine runs beside the specs:
+`AlarmToNotificationRoundTripTest` takes an added reminder through the alarm
+`AlarmManager` is holding, its pending intent's request code and due-time
+extra, `ReminderBroadcastReceiver`, and out to the notification on screen, so
+the glue in `ReminderManager.kt` — the four numbers that are one identity
+across alarms, notifications and pending intents — is checked on every commit
+instead of only on a device; `SettingsRepairTest` does the same for the reads
+in `Prefs.java` that replace a stored value of the wrong type. Two things to
+know when writing more of them: Robolectric needs the app's resources, hence
+`unitTests.includeAndroidResources` in `app/build.gradle`, and each class pins
+one SDK level with `@Config(sdk = [36])`; and it delivers a broadcast only to a
+receiver a test registered, never to one the manifest declares, so a fired
+pending intent is handed to the receiver by the test, after checking which
+class the intent names. What Robolectric cannot answer — whether a real
+`AlarmManager` wakes a sleeping process — is the device stage of ticket 28.
+
 Not every script under `scripts/` is a gate.
 `scripts/generate-open-source-licenses.sh` regenerates the in-app licences
 page, `app/src/main/assets/open_source_licenses.html`, from the "Included

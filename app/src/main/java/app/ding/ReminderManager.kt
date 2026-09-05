@@ -28,6 +28,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import app.ding.data.Reminder
@@ -84,6 +85,13 @@ object ReminderManager {
      */
     private var runner: ReminderCommandRunner? = null
 
+    /**
+     * The clock every command is decided against. Read through a lambda rather than
+     * handed to the runner once, so that [useClock] reaches a runner that already
+     * exists as well as the next one.
+     */
+    private var clock: () -> Long = System::currentTimeMillis
+
     @Synchronized
     private fun runner(context: Context): ReminderCommandRunner {
         val applicationContext = context.applicationContext
@@ -91,7 +99,24 @@ object ReminderManager {
             ReminderStorage.storeIn(applicationContext),
             AlarmsAndNotifications(applicationContext),
             ::logEffectFailure
-        ).also { runner = it }
+        ) { clock() }.also { runner = it }
+    }
+
+    /**
+     * Decide commands against [clock] from now on, and forget the runner this process
+     * was using so that the next command builds one against the context it is given.
+     *
+     * For tests, which need to hold time still and to start from a store of their own:
+     * the runner and the clock both live as long as the process, and a test that
+     * inherited either from the test before it would be reading another test's
+     * reminders or the real wall clock. Nothing in the app calls this, and the default
+     * is the system clock, so it changes no behaviour on a device.
+     */
+    @VisibleForTesting
+    @Synchronized
+    internal fun useClock(clock: () -> Long) {
+        this.clock = clock
+        runner = null
     }
 
     /**

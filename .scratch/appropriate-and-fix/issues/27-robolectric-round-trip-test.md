@@ -1,7 +1,7 @@
 # 27 — Test the alarm-to-notification round trip with Robolectric
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: —
 
 ## Question
