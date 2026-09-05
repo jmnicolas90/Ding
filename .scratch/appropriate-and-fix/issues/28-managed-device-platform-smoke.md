@@ -111,5 +111,10 @@ vacuous: with the due time moved into the past it fails with
 `Refused(reason=PastDue)`, the mutation the ticket names, and with the poll
 looking for `id + 1` — a notification that never arrives, which is what a
 failure to fire looks like — it fails with the "the alarm did not fire" message
-after its full minute of patience. Green in CI on `main` is the half only the
-merge can establish.
+after its full minute of patience. The other half is established too: the first
+`Device` run on `main` (c9031ec) was green in 3m03s, `Starting 1 tests` and
+`Finished 1 tests`, so the two assumptions the workflow makes and this machine
+cannot check both hold — the GitHub runner boots the emulator under AGP's
+default renderer, and it downloads `system-images;android-36;default;x86_64`
+itself. Three minutes there against under one here, because the runner has no
+AVD to reuse.
