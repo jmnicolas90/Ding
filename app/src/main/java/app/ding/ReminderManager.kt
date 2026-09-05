@@ -34,6 +34,7 @@ import app.ding.data.Reminder
 import app.ding.data.Reminder.Status
 import app.ding.state.AlarmKind
 import app.ding.state.CommandResult
+import app.ding.state.EffectsFailed
 import app.ding.state.NotificationKind
 import app.ding.state.PersistenceFailed
 import app.ding.state.ReconcileResult
@@ -293,6 +294,14 @@ object ReminderManager {
         fun run(context: Context) {
             when (val result = run(context, toCommand())) {
                 is TransitionOutcome -> Log.d("ReminderAction", "$this: $result")
+                // Each failed effect has already been logged at error level by
+                // [logEffectFailure]. There is no user in front of a broadcast, and the
+                // store holds what the transition decided, so the next Reconcile asks
+                // for the same effects again.
+                is EffectsFailed -> Log.d(
+                    "ReminderAction",
+                    "$this: stored, but ${result.describeFailures()} could not be carried out"
+                )
                 // This runs in a broadcast receiver, with no user to tell and nothing
                 // safe to retry here. The reminder keeps the state it has on disk, so
                 // the next Reconcile — at the next process start — picks the work up

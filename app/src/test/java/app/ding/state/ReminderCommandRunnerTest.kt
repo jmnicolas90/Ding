@@ -280,7 +280,7 @@ class ReminderCommandRunnerTest : FunSpec({
 
         // The runner sees an empty store: there is nothing to change and nothing to
         // do, which is the sweep's Unchanged answer for every reminder it can see.
-        result shouldBe ReconcileResult.Reconciled(emptyList())
+        result shouldBe ReconcileResult.Reconciled(emptyList(), failedEffects = emptyList())
         executor.effects shouldBe emptyList()
         store.quarantined?.raw shouldBe raw
     }
@@ -571,7 +571,7 @@ class ReminderCommandRunnerTest : FunSpec({
 
         // No SetAlarm(2) followed by a CancelAlarm(2): the store never reaches the
         // transition function at all.
-        result shouldBe ReconcileResult.Reconciled(emptyList())
+        result shouldBe ReconcileResult.Reconciled(emptyList(), failedEffects = emptyList())
         executor.effects shouldBe emptyList()
         store.quarantined?.raw shouldBe raw
     }
@@ -609,9 +609,12 @@ class ReminderCommandRunnerTest : FunSpec({
 
         val result = runner.run(ReminderCommand.MarkDone(2))
 
-        // The store committed, so the outcome is what was stored: the effects are not
-        // what it answers for.
-        result shouldBe TransitionOutcome.Updated(notified.copy(status = Status.DONE))
+        // The store committed, so the outcome is what was stored — and the cancel that
+        // did not happen comes back wrapped around it rather than being dropped.
+        result shouldBe EffectsFailed(
+            TransitionOutcome.Updated(notified.copy(status = Status.DONE)),
+            listOf(ReminderEffect.CancelAlarm(2))
+        )
         executor.ran shouldBe listOf(ReminderEffect.CancelNotification(2))
         failures.effects shouldBe listOf(ReminderEffect.CancelAlarm(2))
     }
@@ -641,6 +644,12 @@ class ReminderCommandRunnerTest : FunSpec({
                 TransitionOutcome.Updated(delivered.copy(status = Status.NOTIFIED)),
                 TransitionOutcome.Unchanged,
                 TransitionOutcome.Unchanged
+            ),
+            failedEffects = listOf(
+                ReminderEffect.ShowNotification(
+                    delivered.copy(status = Status.NOTIFIED),
+                    NotificationKind.DELIVER
+                )
             )
         )
         executor.ran shouldBe listOf(
@@ -677,6 +686,85 @@ class ReminderCommandRunnerTest : FunSpec({
         )
         failures.failures.map { it.message } shouldBe
             List(2) { "the effect could not be carried out" }
+    }
+
+    // A failed effect is a reminder that does not go off, so the result has to say so.
+    // The store committed and the outcome is still true, which is why the outcome comes
+    // back wrapped rather than replaced — but a caller with a user in front of it may
+    // not read that outcome as a clean success.
+
+    test("an Add whose alarm cannot be set reports the failure rather than a clean success") {
+        val store = FakeStore(StoredReminders(emptyList(), nextId = 4))
+        val executor = ExecutorThatFails { it is ReminderEffect.SetAlarm }
+        val failures = RecordedFailures()
+        val runner = ReminderCommandRunner(store, executor, failures) { NOW }
+
+        val result = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        // The reminder is stored and scheduled, and its alarm slot is empty: exactly
+        // the state the dialog used to report as a reminder set for a time.
+        val added = store.read().stored.reminders.single()
+        added.status shouldBe Status.SCHEDULED
+        result shouldBe EffectsFailed(
+            TransitionOutcome.Updated(added),
+            listOf(ReminderEffect.SetAlarm(4, NOW + 60_000, AlarmKind.DELIVER, NOW + 60_000))
+        )
+    }
+
+    test("a Reschedule whose alarm cannot be set reports the failure rather than a clean success") {
+        val stored = scheduled(NOW + 60_000)
+        val store = FakeStore(StoredReminders(listOf(stored), nextId = 4))
+        val executor = ExecutorThatFails { it is ReminderEffect.SetAlarm }
+        val failures = RecordedFailures()
+        val runner = ReminderCommandRunner(store, executor, failures) { NOW }
+
+        val result = runner.run(
+            ReminderCommand.Reschedule(
+                reminderId = 2,
+                dueTime = NOW + 120_000,
+                text = "Water the plants",
+                naggingRepeatInterval = 0
+            )
+        )
+
+        // The cancel of the notification ran, so only the alarm is missing; the outcome
+        // it is wrapped around is the reminder as it now stands on disk.
+        result shouldBe EffectsFailed(
+            TransitionOutcome.Updated(stored.copy(date = Date(NOW + 120_000))),
+            listOf(ReminderEffect.SetAlarm(2, NOW + 120_000, AlarmKind.DELIVER, NOW + 120_000))
+        )
+        executor.ran shouldBe listOf(ReminderEffect.CancelNotification(2))
+    }
+
+    test("a sweep whose effect fails is still a sweep, and carries the failure") {
+        val store = FakeStore(StoredReminders(listOf(scheduled(NOW + 60_000)), nextId = 4))
+        val executor = ExecutorThatFails { it is ReminderEffect.SetAlarm }
+        val failures = RecordedFailures()
+        val runner = ReminderCommandRunner(store, executor, failures) { NOW }
+
+        // There is no user in front of the startup sweep, so it answers Reconciled as
+        // it always did. What it gained is the effects it could not carry out.
+        runner.reconcileAll() shouldBe ReconcileResult.Reconciled(
+            listOf(TransitionOutcome.Unchanged),
+            failedEffects = listOf(
+                ReminderEffect.SetAlarm(2, NOW + 60_000, AlarmKind.DELIVER, NOW + 60_000)
+            )
+        )
+    }
+
+    test("a command whose effects all ran carries no failure at all") {
+        val scheduled = scheduled(NOW + 60_000)
+        val store = FakeStore(StoredReminders(listOf(scheduled), nextId = 4))
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        // The outcome comes back bare, which is what lets a dialog report a success.
+        runner.run(ReminderCommand.MarkDone(2)) shouldBe
+            TransitionOutcome.Updated(scheduled.copy(status = Status.DONE))
+        runner.reconcileAll() shouldBe ReconcileResult.Reconciled(
+            listOf(TransitionOutcome.Unchanged),
+            failedEffects = emptyList()
+        )
     }
 
     test("an effect names itself by what it does and to which reminder, never by its text") {

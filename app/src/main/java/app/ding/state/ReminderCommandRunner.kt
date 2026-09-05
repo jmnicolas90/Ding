@@ -59,7 +59,7 @@ data class StoreReading(
 
 /**
  * What running one command did: one of the transition function's outcomes, or
- * [PersistenceFailed].
+ * [PersistenceFailed], or an outcome wrapped in [EffectsFailed].
  *
  * The failure is a case of its own rather than [TransitionOutcome.Unchanged],
  * because "nothing needed doing" and "the write did not happen" are opposite
@@ -69,10 +69,57 @@ data class StoreReading(
  */
 sealed interface CommandResult
 
+/**
+ * The store committed, but an effect the reminder needs was not carried out.
+ *
+ * The commonest one is an alarm that could not be set, which leaves a `SCHEDULED`
+ * reminder with an empty alarm slot: nothing fires at the due time and nothing tries
+ * again until the next process start. Invariant 1 of `docs/reminder-state-machine.md`
+ * does not hold over a command that answers this.
+ *
+ * It wraps the outcome rather than replacing it, because the write did happen and the
+ * outcome is still true — the caller needs it to know what is now stored, and a
+ * reminder that was saved and not scheduled is a different thing from one that was not
+ * saved. It is a case of [CommandResult] rather than a list hanging off
+ * [TransitionOutcome.Updated] for the same reason [PersistenceFailed] is one: a caller
+ * that matches without an `else` stops compiling until it has answered, whereas a field
+ * nobody reads would be the original bug one level up.
+ *
+ * The effects have already been reported to the runner's failure reporter, which is
+ * what logs them; this is for the caller that has a user in front of it.
+ */
+data class EffectsFailed(
+    /** What the command did to the store, which committed. */
+    val outcome: TransitionOutcome,
+    /**
+     * The effects that could not be carried out, in the order they were tried. Never
+     * empty: a command all of whose effects ran answers with the bare outcome.
+     */
+    val failedEffects: List<ReminderEffect>
+) : CommandResult {
+    /**
+     * The effects that failed, named for a log line: what each one does and to which
+     * reminder, never a reminder's own text. Here rather than at each caller, which
+     * would be three walks of another object's list to build the same sentence.
+     */
+    fun describeFailures(): String = failedEffects.joinToString { it.describe() }
+}
+
 /** What a reconciliation sweep did. */
 sealed interface ReconcileResult {
-    /** The sweep ran; one outcome per stored reminder, in store order. */
-    data class Reconciled(val outcomes: List<TransitionOutcome>) : ReconcileResult
+    /**
+     * The sweep ran; one outcome per stored reminder, in store order.
+     *
+     * The failed effects are a field here rather than a case of their own, because the
+     * sweep has no user in front of it: it runs from `Main.onCreate`, its one caller
+     * logs and carries on either way, and the next process start asks for the same
+     * effects again. The field is still on every construction, so nothing can produce a
+     * sweep result without saying what did not happen.
+     */
+    data class Reconciled(
+        val outcomes: List<TransitionOutcome>,
+        val failedEffects: List<ReminderEffect>
+    ) : ReconcileResult
 }
 
 /**
@@ -210,8 +257,7 @@ class ReminderCommandRunner(
         if (written) {
             store.announceChange()
         }
-        runEffects(effects)
-        return ReconcileResult.Reconciled(outcomes)
+        return ReconcileResult.Reconciled(outcomes, runEffects(effects))
     }
 
     private fun runCommand(makeCommand: (StoredReminders) -> ReminderCommand): CommandResult {
@@ -240,8 +286,15 @@ class ReminderCommandRunner(
         if (written) {
             store.announceChange()
         }
-        runEffects(result.effects)
-        return result.outcome
+        val failedEffects = runEffects(result.effects)
+        // The bare outcome is the promise that everything the command asked for
+        // happened; anything less has to be wrapped, or the caller reports a success
+        // for a reminder that will not go off.
+        return if (failedEffects.isEmpty()) {
+            result.outcome
+        } else {
+            EffectsFailed(result.outcome, failedEffects)
+        }
     }
 
     /**
@@ -253,24 +306,30 @@ class ReminderCommandRunner(
      * nothing else fires either. Each one is therefore carried out on its own, and one
      * that fails is reported and the next one tried.
      *
-     * What is lost is only the effect itself, and only until the next reconciliation:
-     * the store was written before any of this ran, so the sweep at the next process
-     * start reads the same reminders and asks for the same alarm and the same
-     * notification again. That is also why the outcome the caller gets back is
-     * unchanged by a failure here — it says what was stored, which is still true.
+     * The effect itself is lost until the next reconciliation: the store was written
+     * before any of this ran, so the sweep at the next process start reads the same
+     * reminders and asks for the same alarm and the same notification again. Until then
+     * the reminder is stored in a state its alarms and notifications do not match, which
+     * is why the ones that failed are returned rather than only logged — the caller is
+     * the only one that knows whether there is a user waiting to be told.
      *
      * [Exception], not [Throwable]: what Android throws when it refuses an alarm or a
      * notification is a runtime exception, and an [Error] means the process is in no
      * state to carry on with the next effect anyway.
+     *
+     * @return the effects that could not be carried out, in the order they were tried.
      */
-    private fun runEffects(effects: List<ReminderEffect>) {
+    private fun runEffects(effects: List<ReminderEffect>): List<ReminderEffect> {
+        val failed = mutableListOf<ReminderEffect>()
         effects.forEach { effect ->
             try {
                 effectExecutor.execute(effect)
             } catch (e: Exception) {
                 reportEffectFailure(effect, e)
+                failed.add(effect)
             }
         }
+        return failed
     }
 
     /**

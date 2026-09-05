@@ -129,6 +129,15 @@
     <string name="toast_run_on_boot_revoked_therefore_disabled">Permission to run on device startup has been revoked, the setting has been disabled.</string>
     <string name="error_msg_reminder_not_found">Error: Reminder not found</string>
     <string name="error_msg_reminder_not_saved">Could not save the reminder. Nothing was changed.</string>
+    <!-- The reminder was saved, but the alarm that makes it go off was not set. Not the
+         same thing as not saving it: there is nothing to correct and nothing to send
+         again, so the dialog closes and this says what the user cannot see. -->
+    <string name="error_msg_reminder_saved_not_scheduled">Reminder saved, but it may not go off as set.</string>
+    <!-- Mark done or delete: the store did change, and the list shows it, but the alarm
+         or the notification that should have been cleared may still be there. It says
+         nothing about what changed, because the same message answers for a reminder
+         that was marked done and one that was deleted. -->
+    <string name="error_msg_reminder_alarm_or_notification_not_cleared">The reminder\'s alarm or notification may still be there.</string>
 
     <string name="dialog_reminders_unreadable_title">Stored reminders could not be read</string>
     <string name="dialog_reminders_unreadable_message">The saved reminders could not be read, so they were set aside and the app started with an empty list. Nothing has been deleted.\n\nYou can share the raw data to keep a copy or send it with a bug report, or discard it. This message comes back every time you open the app until you discard the data.</string>
