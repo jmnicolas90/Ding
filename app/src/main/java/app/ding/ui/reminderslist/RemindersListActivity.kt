@@ -41,6 +41,7 @@ import app.ding.BuildConfig
 import app.ding.Main
 import app.ding.Prefs
 import app.ding.R
+import app.ding.ReminderManager
 import app.ding.ReminderStorage
 import app.ding.state.QuarantinedReminders
 import app.ding.ui.AddReminderDialogActivity
@@ -227,6 +228,37 @@ class RemindersListActivity : AppCompatActivity() {
                 this
             )
             { requestPermissions(arrayOf(POST_NOTIFICATIONS), 0) }
+        }
+    }
+
+    /**
+     * The user has answered a permission request. The only answer that asks for work
+     * here is a granted [POST_NOTIFICATIONS]: a delivery that happened while it was
+     * denied wrote the reminder as `NOTIFIED` and showed nothing, and a reminder that
+     * does not nag holds no alarm afterwards, so nothing would put that notification
+     * on screen before the next process start. Reconcile is what puts it there, and
+     * the grant is the second thing that triggers it — the first is the startup sweep
+     * in [Main], which has already run by the time this activity asks.
+     *
+     * Reconcile on a delivered reminder re-shows it silently, as every other re-show
+     * does. A delivery the user never heard is not re-alerted here: they are looking
+     * at the app, which is where they just granted the permission.
+     *
+     * The permission is matched by name and not by the request code, because the boot
+     * permission is requested from here too (see [Prefs.enableRunOnBoot]) and arrives
+     * at this same callback.
+     */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        val notificationsIndex = permissions.indexOf(POST_NOTIFICATIONS)
+        if (notificationsIndex >= 0
+            && grantResults.getOrNull(notificationsIndex) == PackageManager.PERMISSION_GRANTED
+        ) {
+            ReminderManager.reconcileAllReminders(this)
         }
     }
 

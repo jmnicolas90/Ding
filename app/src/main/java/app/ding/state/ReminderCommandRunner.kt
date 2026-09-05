@@ -221,7 +221,8 @@ class ReminderCommandRunner(
 
     /**
      * Bring alarms and notifications back in line with the store, for every stored
-     * reminder. Runs once per process start, before any other component.
+     * reminder. When it runs is the Android half's business, and is listed on
+     * `ReminderManager.reconcileAllReminders`.
      */
     fun reconcileAll(): ReconcileResult {
         lock.lock()

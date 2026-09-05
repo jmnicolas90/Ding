@@ -50,7 +50,7 @@ reminder id, except Add, which creates one.
 | `Reschedule` | new due time, text, nag interval | Edit dialog |
 | `Edit` | text, nag interval | Edit dialog |
 | `Delete` | – | List |
-| `Reconcile` | – (applies to every stored reminder) | Application start |
+| `Reconcile` | – (applies to every stored reminder) | Application start; notification permission granted; unreadable alarm payload |
 
 Which of `Edit` or `Reschedule` the edit dialog issues is decided by the due
 time, in every starting state (ticket 11). The dialog opens on the reminder's
@@ -203,11 +203,24 @@ bound of its own in this map; that is a feature decision.
 
 ## Reconcile
 
-Runs once per process start, from `Main.onCreate`, before any component
+Runs at every process start, from `Main.onCreate`, before any component
 including the alarm receiver. It applies `Reconcile` to every stored
 reminder. Because it delivers a past-due `SCHEDULED` reminder itself, the
 Deliver alarm that woke the process then finds the reminder already
 `NOTIFIED` and is stale. That is the cold-start fix: one alert, one write.
+
+It also runs when the user grants `POST_NOTIFICATIONS` from the reminders list
+(ticket 29). A delivery that happened while the permission was denied still
+wrote the reminder as `NOTIFIED` and showed nothing, and a reminder that does
+not nag holds no alarm afterwards, so without this the notification would not
+appear until the next process start. The re-show it produces is the silent one
+of the `NOTIFIED` row above; the user is looking at the app at that moment, so
+there is nothing to alert them to.
+
+Third, the alarm receiver reconciles when it is handed a payload it cannot read;
+the reason is given with the stale-alarm rule above. Those three are the whole
+list, and `CONTEXT.md` and the KDoc on `ReminderManager.reconcileAllReminders`
+carry the same one.
 
 ## The runner
 

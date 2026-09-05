@@ -1,7 +1,7 @@
 # 29 — Reconcile when the notification permission is granted
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: 27
 
 ## Question
