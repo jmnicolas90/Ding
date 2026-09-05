@@ -86,3 +86,17 @@ binder calls each, and done reminders accumulate forever because retention is st
 unspecified; that is the retention item in the map, not this ticket. Nothing in the
 Android half changed: `cancelAlarm` builds a pending intent to cancel a slot that is
 usually already empty, which is what it already did for MarkDone and Delete.
+
+## Review findings (2026-09-05)
+
+- **DONE cleanup can cancel a live duplicate's freshly restored alarm** (high) —
+  accepted, fixed by ticket 21. With two stored reminders sharing an id, say a
+  future `SCHEDULED` and a `DONE` one both with id 2, `reconcileAll` runs
+  `SetAlarm(2)` and then the new `CancelAlarm(2)`, since alarms and
+  notifications share the id and effects run in store order. That store is
+  exactly what ticket 21 makes unreadable (`DUPLICATE_ID`, quarantined before
+  any effect runs), so the fix belongs there rather than in a second guard
+  here; ticket 21 also carries the runner-level regression the reviewer asked
+  for, a store with a duplicate id producing no `SetAlarm` followed by a
+  `CancelAlarm`. Until 21 lands, `main` has that window; nothing is released
+  from it.
