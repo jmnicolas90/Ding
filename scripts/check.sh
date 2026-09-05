@@ -47,35 +47,11 @@ gate() {
   echo "✓ $id $label"
 }
 
-# G0 is the one gate that is not a Gradle task, so it is spelled out rather than
-# run through `gate`. It is several commands, which is exactly the case the
-# comment above warns about — hence the explicit `|| exit 1` on each one.
-preflight() {
-  echo "── G0 preflight ──"
-  (
-    # compileSdk = 36 needs platforms/android-36 specifically. Android Studio
-    # installs android-36.1, a distinct package that does NOT substitute — so
-    # the raw Gradle error reads as "platform missing" while an android-36.1
-    # directory sits right there. Name the real fix instead.
-    sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-    if [ -z "$sdk" ] && [ -f "$ROOT/local.properties" ]; then
-      # tr strips the trailing CR a CRLF local.properties would leave behind.
-      sdk="$(sed -n 's/^sdk\.dir=//p' "$ROOT/local.properties" | tail -1 | tr -d '\r')" || exit 1
-    fi
-    if [ -z "$sdk" ]; then
-      echo "✗ no Android SDK: set ANDROID_HOME, or put sdk.dir=... in local.properties" >&2
-      exit 1
-    fi
-    if [ ! -d "$sdk/platforms/android-36" ]; then
-      echo "✗ missing \$ANDROID_HOME/platforms/android-36 (android-36.1 will NOT do)" >&2
-      echo "  fix: \"$sdk/cmdline-tools/latest/bin/sdkmanager\" 'platforms;android-36'" >&2
-      exit 1
-    fi
-  ) || { echo "✗ GATE G0 FAILED" >&2; exit 1; }
-  echo "✓ G0 preflight"
-}
-
-preflight
+# G0 is the one gate that is not a Gradle task. It lives in its own script because
+# scripts/check-device.sh has to run the same check before it boots an emulator,
+# and a preflight copied into two files is a preflight that will one day check two
+# different things.
+gate G0 preflight "$ROOT/scripts/check-sdk-platform.sh"
 
 # G1 is the other gate that is not a Gradle task. It runs here, before anything
 # that starts a JVM, because it costs well under a second and because an address
