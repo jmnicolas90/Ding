@@ -1,7 +1,7 @@
 # 26 — Stop claiming reminders are scheduled before the device is unlocked
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: —
 
 ## Question
