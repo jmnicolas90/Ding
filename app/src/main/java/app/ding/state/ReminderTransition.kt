@@ -368,7 +368,17 @@ private fun reconcile(stored: Reminder, now: Long): TransitionResult =
             }
         )
 
-        Status.DONE -> TransitionResult(TransitionOutcome.Unchanged)
+        // A done reminder should already have an empty slot and nothing on screen, but
+        // the write that marks it done happens before the cancels, so a process that
+        // died in between — or a cancel that failed — can have left either behind.
+        // This is the only chance to repair that, and both cancels are idempotent.
+        Status.DONE -> TransitionResult(
+            TransitionOutcome.Unchanged,
+            listOf(
+                ReminderEffect.CancelAlarm(stored.id),
+                ReminderEffect.CancelNotification(stored.id)
+            )
+        )
     }
 
 /**
@@ -393,12 +403,21 @@ private fun nagAlarm(reminder: Reminder, now: Long) = ReminderEffect.SetAlarm(
 
 /**
  * The first multiple of the nag interval after [now], counted from the original
- * due time. A nag delayed past several intervals therefore fires once, not once
- * per missed occurrence.
+ * due time, and never earlier than the due time plus one interval. A nag delayed
+ * past several intervals therefore fires once, not once per missed occurrence.
  */
 fun nextNagTime(reminder: Reminder, now: Long): Long {
     require(reminder.isNagging) { "Reminder ${reminder.id} does not nag." }
+    val dueTime = reminder.date.time
     val interval = reminder.naggingRepeatIntervalInMillis
-    val sinceLastNag = Math.floorMod(now - reminder.date.time, interval)
+    // Setting the clock back puts now before the due time of a reminder that has
+    // already been delivered. Counting occurrences from the due time would then land
+    // on a negative multiple of the interval — a nag before the reminder's own due
+    // time, repeating until the clock catches up. The first nag is one interval after
+    // the due time whatever the clock says.
+    if (now < dueTime) {
+        return dueTime + interval
+    }
+    val sinceLastNag = Math.floorMod(now - dueTime, interval)
     return now + (interval - sinceLastNag)
 }

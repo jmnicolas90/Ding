@@ -374,7 +374,72 @@ class ReminderTransitionTest : FunSpec({
             )
         )
 
-        results.getValue(done) shouldBe TransitionResult(TransitionOutcome.Unchanged)
+        // A done reminder is left with an empty slot and nothing on screen, which is
+        // also the repair for a mark done whose cancels never ran.
+        results.getValue(done) shouldBe
+            TransitionResult(TransitionOutcome.Unchanged, bothCancels(8))
+    }
+
+    test("a nag is never earlier than the due time plus one interval") {
+        // Setting the clock back puts now before the due time of a reminder that was
+        // already delivered. The remainder that counts occurrences from the due time
+        // then lands on a negative multiple of the interval: due 10:00, now 09:00 and a
+        // ten minute interval used to give a nag at 09:10, and the reminder nagged over
+        // and over before its own due time on the corrected clock.
+        val dueTime = NOW
+        val interval = 10 * MINUTE
+        val stored = reminder(
+            dueTime = dueTime,
+            status = Status.NOTIFIED,
+            naggingRepeatInterval = 10
+        )
+
+        // Now before the due time, by an hour and by a millisecond.
+        nextNagTime(stored, dueTime - HOUR) shouldBe dueTime + interval
+        nextNagTime(stored, dueTime - 1) shouldBe dueTime + interval
+        // At the due time, and a millisecond after it.
+        nextNagTime(stored, dueTime) shouldBe dueTime + interval
+        nextNagTime(stored, dueTime + 1) shouldBe dueTime + interval
+        // On an exact interval boundary the next nag is the following occurrence, not
+        // this instant, so a nag alarm is never set for the moment it fires.
+        nextNagTime(stored, dueTime + interval) shouldBe dueTime + 2 * interval
+        nextNagTime(stored, dueTime + 3 * interval) shouldBe dueTime + 4 * interval
+    }
+
+    test("reconciling after the clock was set back does not nag before the due time") {
+        // What a rollback looks like in the store: a reminder that has been delivered
+        // and whose due time is ahead of the clock the app is now running on.
+        val dueTime = NOW + HOUR
+        val notified = reminder(
+            dueTime = dueTime,
+            status = Status.NOTIFIED,
+            naggingRepeatInterval = 10
+        )
+
+        val result = transition(notified, ReminderCommand.Reconcile(ID), NOW)
+
+        result shouldBe TransitionResult(
+            TransitionOutcome.Unchanged,
+            listOf(
+                ReminderEffect.ShowNotification(notified, NotificationKind.RESHOW),
+                ReminderEffect.SetAlarm(ID, dueTime + 10 * MINUTE, AlarmKind.NAG, dueTime)
+            )
+        )
+    }
+
+    test("reconciling a done reminder empties its slot and takes its notification off the screen") {
+        // Invariant 3: a done reminder has an empty alarm slot and no notification
+        // after a reconciliation. The write that marks a reminder done happens before
+        // the cancels, so a process that dies in between — or a cancel that fails —
+        // leaves a done reminder with a nag alarm or a notification still there, and
+        // the reconciliation is the only thing that can repair it. Both cancels are
+        // idempotent, so doing them on every start costs nothing.
+        for (dueTime in listOf(NOW - HOUR, NOW + HOUR)) {
+            val done = reminder(dueTime = dueTime, status = Status.DONE, naggingRepeatInterval = 10)
+
+            transition(done, ReminderCommand.Reconcile(ID), NOW) shouldBe
+                TransitionResult(TransitionOutcome.Unchanged, bothCancels())
+        }
     }
 
     test("the largest nag interval a reminder may hold computes its next nag a day ahead") {

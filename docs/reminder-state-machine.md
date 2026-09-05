@@ -120,12 +120,23 @@ always `Unchanged` with no effects: it is not an error.
 | Reconcile | `SCHEDULED` | due ≤ now | as Deliver with expected = due | as Deliver |
 | Reconcile | `SCHEDULED` | due > now | Unchanged | SetAlarm(due, Deliver) |
 | Reconcile | `NOTIFIED` | – | Unchanged | ShowNotification(Reshow); SetAlarm(nextNag(now), Nag) if nagging |
-| Reconcile | `DONE` | – | Unchanged | – |
+| Reconcile | `DONE` | – | Unchanged | CancelAlarm; CancelNotification |
 | any except Add | absent | – | Unchanged | CancelAlarm; CancelNotification |
 
-`nextNag(now)` is the existing rule: the first multiple of the nag interval
-after now, counted from the original due time. A delayed nag therefore
-never replays the occurrences it missed. The interval bound is ticket 14.
+`nextNag(now)` is the first multiple of the nag interval after now, counted from
+the original due time, and never earlier than the due time plus one interval. A
+delayed nag therefore never replays the occurrences it missed, and a clock set
+back — which puts now before the due time of a reminder that has already been
+delivered — does not put a nag before the reminder's own due time (ticket 23).
+The interval bound is ticket 14.
+
+Reconcile over a `DONE` reminder cancels its alarm and its notification rather
+than doing nothing (ticket 23). MarkDone is persisted before its cancel effects
+run, so a process that dies in between, or a cancel that fails, leaves a done
+reminder with something still in its alarm slot or still on screen, and the next
+start is the only thing that can repair it. Both cancels are idempotent, so doing
+them for every done reminder costs nothing. That is what makes invariant 3 hold
+after Reconcile and not only after MarkDone.
 
 An Edit on a `SCHEDULED` reminder still ahead of now has no effects because the
 alarm payload carries only the id and the due time; text and nag settings are
