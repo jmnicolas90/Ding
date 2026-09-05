@@ -79,3 +79,24 @@ whose interval is past the bound, quarantined rather than crashing.
 Left out: the `EditTextPreference` keeps its plain number input rather than gaining
 an input filter, since the change listener already refuses out-of-range values, and
 its summary still shows the current interval rather than the range.
+
+## Review findings (2026-09-05)
+
+- **The stored nag interval could still throw on read, and an unusable one stayed in
+  storage** (medium) — fixed. `Prefs.getNaggingRepeatInterval` read the preference before
+  the try block, so a value of another type threw `ClassCastException` out of the reminder
+  dialog and out of the settings summary, unlogged; and an unusable value returned the
+  default without replacing what was stored, so the settings editor kept showing text the
+  app was not using and every later read logged the same complaint. The decision is now
+  `naggingRepeatIntervalFromStored` in `app/src/main/java/app/ding/data/NagIntervalSetting.kt`:
+  no Android imports, the read passed in as a function so a `ClassCastException` on it is
+  one more unusable value, answering with the interval or null. `Prefs` logs once, writes
+  the default back with `commit()` — checking the result and logging when the write fails —
+  and returns it, so the summary and the number picker then show one minute. 0 is unusable
+  for *this* preference rather than "nagging off": nagging is switched on separately and the
+  picker's minimum is one minute, so a stored 0 would arm the switch with an interval that
+  never nags. New `app/src/test/java/app/ding/data/NagIntervalSettingTest.kt` covers a value
+  inside the bound, a value of another type, nothing stored, empty, not a whole number, "0",
+  "-1", "1441" and `Int.MAX_VALUE`, and that the read is asked for once. The write-back
+  itself has no JVM seam in this build — there is no Robolectric — so that step is Android
+  code covered by inspection, not by a test.

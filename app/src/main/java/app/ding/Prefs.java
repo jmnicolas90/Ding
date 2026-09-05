@@ -35,6 +35,7 @@ import androidx.annotation.StringRes;
 import androidx.core.app.ActivityCompat;
 import androidx.preference.PreferenceManager;
 
+import app.ding.data.NagIntervalSetting;
 import app.ding.data.Reminder;
 
 /**
@@ -230,25 +231,39 @@ public class Prefs {
     /**
      * The default nag interval in minutes, always within the bound {@link Reminder} enforces.
      * <p>
-     * An older build let the settings input store any number up to {@code Integer.MAX_VALUE},
-     * and the preferences file can be edited by hand, so a stored value outside the bound is
-     * possible and must not reach a reminder: the model would refuse it. Such a value is not
-     * repaired, it is passed over — the default is used instead and the fact is logged.
+     * This is read when the reminder dialog opens and when the settings summary is drawn, so
+     * it may not throw and may not hand out a value a reminder would refuse. Three things can
+     * be wrong with what is stored: an older build let the settings input store any number up
+     * to {@code Integer.MAX_VALUE}, the preferences file can be edited by hand, and a value of
+     * another type in it makes the read itself throw {@link ClassCastException}. What counts
+     * as usable is {@code naggingRepeatIntervalFromStored} in {@link NagIntervalSetting},
+     * which has no Android in it and is tested on a plain JVM.
+     * <p>
+     * A value that cannot be used is replaced by the default in storage, once, rather than
+     * only passed over. Passing it over left the settings editor showing text the app was not
+     * using and made every later read log the same complaint again.
      */
     public static int getNaggingRepeatInterval(Context context) {
-        String stored = getStringPref(R.string.prefkey_nagging_repeat_interval, String.valueOf(Defaults.NAGGING_REPEAT_INTERVAL), context);
-        int interval;
-        try {
-            interval = Integer.parseInt(stored);
-        } catch (NumberFormatException ex) {
-            Log.w(TAG, "Stored nag interval \"" + stored + "\" is not a number; using " + Defaults.NAGGING_REPEAT_INTERVAL + " minute(s).");
-            return Defaults.NAGGING_REPEAT_INTERVAL;
+        String defaultValue = String.valueOf(Defaults.NAGGING_REPEAT_INTERVAL);
+        Integer interval = NagIntervalSetting.naggingRepeatIntervalFromStored(
+                () -> getStringPref(R.string.prefkey_nagging_repeat_interval, defaultValue, context));
+        if (interval != null) {
+            return interval;
         }
-        if (interval < Reminder.MIN_NAGGING_REPEAT_INTERVAL || interval > Reminder.MAX_NAGGING_REPEAT_INTERVAL) {
-            Log.w(TAG, "Stored nag interval " + interval + " is outside 1.." + Reminder.MAX_NAGGING_REPEAT_INTERVAL + " minutes; using " + Defaults.NAGGING_REPEAT_INTERVAL + " minute(s).");
-            return Defaults.NAGGING_REPEAT_INTERVAL;
+        Log.w(TAG, "Stored nag interval is not a whole number of "
+                + Reminder.MIN_NAGGING_REPEAT_INTERVAL + ".." + Reminder.MAX_NAGGING_REPEAT_INTERVAL
+                + " minutes, or is of another type; storing the default of "
+                + Defaults.NAGGING_REPEAT_INTERVAL + " minute(s) in its place.");
+        // commit(), not apply(): the result is the only way to know whether the unusable
+        // value is really gone, and saying so in the log is worth one small synchronous write
+        // on a path that is taken once, when the stored value is already broken.
+        boolean stored = edit(context)
+                .putString(context.getString(R.string.prefkey_nagging_repeat_interval), defaultValue)
+                .commit();
+        if (!stored) {
+            Log.w(TAG, "Could not store the default nag interval; the unusable value is still there.");
         }
-        return interval;
+        return Defaults.NAGGING_REPEAT_INTERVAL;
     }
 
     public static int getReminderDialogTimePickerTextSize(Context context) {
