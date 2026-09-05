@@ -142,3 +142,47 @@ Left alone, deliberately:
   `setIs24HourView(true)`. That is review finding 7 and its own open finding; if
   the picker ever follows the device's preference, the help's "24 hour format"
   and the parser's `0..23` hour range both have to be revisited.
+
+## Review findings (2026-09-05)
+
+- **`TimeMatcher` left the escaping to its callers, and production did not do it**
+  (high) — fixed. Inherited from upstream: the class arrived with the text-based time
+  input feature in `fbe4fe4`, before the fork, already interpolating
+  `separatorAbsoluteTime`, `separatorRelativeTime` and `prefixRelativeTime` straight
+  into its regexes, with a "this is used in a [Regex] and must be escaped accordingly"
+  note on each of the three constructor parameters. `TimeMatcherTest` honoured the
+  note and passed `"\\."`; `ReminderDialogActivity` did not and passed `"."`. An
+  unescaped dot in a pattern means "any character", so with typed time input switched
+  on, the absolute form accepted *any* single character as its separator. `12345 call`
+  was read as 12:45, `12a30 call` and `12 30 call` as 12:30, and because the match ran
+  from the start of the text the first five characters were cut out of the message in
+  each case. The tests could not catch it: they were escaping a separator the app never
+  used, so they exercised a matcher the user never got.
+
+  This ticket's first round wrote docs saying the dot is the clock-time separator. The
+  fix makes the code true to those words rather than the other way round. **The
+  quoting moved inside `TimeMatcher`**: three private `Regex.escape` values feed the
+  patterns, so the constructor now takes the literal text to look for and the "must be
+  escaped" contract — and the trap it set for the one caller that took it at face
+  value — are gone. The doc comments say "as the literal text to look for" with an
+  example each, and the second parameter's comment no longer says "absolute" where it
+  means relative. `ReminderDialogActivity` passes `"."`, `":"` and `"+"`; the tests
+  pass the same plain characters.
+
+  Written red first: three tests in a new "Production separators are literal
+  characters" context, built with exactly the separators the dialog passes, asserting
+  that `12345 call`, `12a30 call` and `12 30 call` are not times. All three failed
+  against `TimeMatch(rangeLast=4, isRelative=false, hour=12, minute=45)` and
+  `...minute=30)`, which is the bug in the review's words. Four positives sit next to
+  them — `12.30 call`, `12:30 call`, `+90 call`, `:90 call` — so the negatives are read
+  against the four documented forms the same matcher must still accept. 176 unit tests
+  green, the 169 that existed before included and unchanged in meaning.
+
+  Nothing else about the parser changed: the accepted forms, the hour and minute
+  ranges, the three-digit limit, the end-of-match rule and the order the forms are
+  tried are all as they were. The "same separators" case still turns off the two
+  unprefixed relative forms, and the comparison that decides it is on the literal
+  strings, so it is unaffected. The separators are still hardcoded at the construction
+  site behind upstream's `// TODO initialize with user-chosen symbols`; making them a
+  setting is a feature, not this fix, and it is now safe to do, since a user-chosen
+  symbol can no longer be read as a pattern.

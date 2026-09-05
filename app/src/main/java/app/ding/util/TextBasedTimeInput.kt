@@ -37,22 +37,19 @@ object TextBasedTimeInput {
      */
     class TimeMatcher(
         /**
-         * Separator between hour and minute when specifying an absolute time.
-         *
-         * NOTE: This is used in a [Regex] and must be escaped accordingly.
+         * Separator between hour and minute when specifying an absolute time,
+         * as the literal text to look for. E.g. "."
          */
         val separatorAbsoluteTime: String,
         /**
-         * Separator between hour and minute when specifying an absolute time.
-         *
-         * NOTE: This is used in a [Regex] and must be escaped accordingly.
+         * Separator between hour and minute when specifying a relative time,
+         * as the literal text to look for. E.g. ":"
          */
         val separatorRelativeTime: String,
         /**
-         * Prefix indicating a relative time specification.
+         * Prefix indicating a relative time specification, as the literal text to
+         * look for. E.g. "+"
          * This is not needed when different separators are used for absolute and relative time.
-         *
-         * NOTE: This is used in a [Regex] and must be escaped accordingly. E.g. "\\+"
          */
         val prefixRelativeTime: String
     ) {
@@ -86,26 +83,34 @@ object TextBasedTimeInput {
 
         val differentSeparators = separatorRelativeTime != separatorAbsoluteTime
 
+        // The separators and the prefix are literal text, so they are quoted before
+        // going into a pattern. Quoting here, rather than asking callers to do it, is
+        // what keeps "." meaning a dot: unquoted it stands for "any character", which
+        // made "12345 call" read as 12:45 and cut five characters out of the message.
+        private val quotedSeparatorAbsoluteTime = Regex.escape(separatorAbsoluteTime)
+        private val quotedSeparatorRelativeTime = Regex.escape(separatorRelativeTime)
+        private val quotedPrefixRelativeTime = Regex.escape(prefixRelativeTime)
+
         private val endOfMatch = "(?=\\s|\$)"
 
         private val prefixedRelTimeHMM = Regex(
-            "$prefixRelativeTime(\\d{1,3})$separatorRelativeTime(\\d\\d)$endOfMatch"
+            "$quotedPrefixRelativeTime(\\d{1,3})$quotedSeparatorRelativeTime(\\d\\d)$endOfMatch"
         )
         private val prefixedRelTimeM = Regex(
-            "$prefixRelativeTime(\\d{1,3})$endOfMatch"
+            "$quotedPrefixRelativeTime(\\d{1,3})$endOfMatch"
         )
         private val unprefixedReltimeHM =
             if (differentSeparators) Regex(
-                "(\\d{1,3})$separatorRelativeTime(\\d\\d)$endOfMatch"
+                "(\\d{1,3})$quotedSeparatorRelativeTime(\\d\\d)$endOfMatch"
             )
             else null
         private val unprefixedReltimeM =
             if (differentSeparators) Regex(
-                "$separatorRelativeTime(\\d{1,3})$endOfMatch"
+                "$quotedSeparatorRelativeTime(\\d{1,3})$endOfMatch"
             )
             else null
         private val absTimeHMM = Regex(
-            "(\\d{1,2})$separatorAbsoluteTime(\\d\\d)$endOfMatch"
+            "(\\d{1,2})$quotedSeparatorAbsoluteTime(\\d\\d)$endOfMatch"
         )
 
         fun match(input: CharSequence): TimeMatch? =
