@@ -50,7 +50,7 @@ reminder id, except Add, which creates one.
 | `Reschedule` | new due time, text, nag interval | Edit dialog |
 | `Edit` | text, nag interval | Edit dialog |
 | `Delete` | – | List |
-| `Reconcile` | – (applies to every stored reminder) | Application start; notification permission granted |
+| `Reconcile` | – (applies to every stored reminder) | Application start; notification permission granted; unreadable alarm payload |
 
 Which of `Edit` or `Reschedule` the edit dialog issues is decided by the due
 time, in every starting state (ticket 11). The dialog opens on the reminder's
@@ -217,8 +217,10 @@ appear until the next process start. The re-show it produces is the silent one
 of the `NOTIFIED` row above; the user is looking at the app at that moment, so
 there is nothing to alert them to.
 
-The alarm receiver reconciles as well, when it is handed a payload it cannot
-read; the reason is given with the stale-alarm rule above.
+Third, the alarm receiver reconciles when it is handed a payload it cannot read;
+the reason is given with the stale-alarm rule above. Those three are the whole
+list, and `CONTEXT.md` and the KDoc on `ReminderManager.reconcileAllReminders`
+carry the same one.
 
 ## The runner
 

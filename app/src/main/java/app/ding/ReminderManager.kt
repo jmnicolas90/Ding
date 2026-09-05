@@ -172,7 +172,13 @@ object ReminderManager {
     /**
      * Bring alarms and notifications back in line with the stored reminders: schedule
      * every future reminder, deliver every past-due one, re-show every reminder that
-     * was delivered and not dealt with. Run once per process start.
+     * was delivered and not dealt with.
+     *
+     * Three things ask for it, and `docs/reminder-state-machine.md` lists the same
+     * three: every process start, from `Main.onCreate`; the user granting
+     * `POST_NOTIFICATIONS`, which is what puts a delivery the denied permission
+     * swallowed back on screen; and [processReminderAction] when an alarm arrives
+     * carrying a payload it cannot read.
      */
     @JvmStatic
     fun reconcileAllReminders(context: Context) {

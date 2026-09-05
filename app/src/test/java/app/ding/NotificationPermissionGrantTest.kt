@@ -72,6 +72,14 @@ class NotificationPermissionGrantTest {
 
     private lateinit var context: Application
 
+    /**
+     * The code the list activity passes to `requestPermissions`. Nothing in the app
+     * looks at it — the permission is matched by name, because the boot permission
+     * arrives at the same callback — so the number matters to nobody; it is the real
+     * one only so that this reads like the answer Android would deliver.
+     */
+    private val requestCodeTheListAskedWith = 0
+
     @Before
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
@@ -101,7 +109,7 @@ class NotificationPermissionGrantTest {
 
         grantNotificationPermission()
         list.onRequestPermissionsResult(
-            REQUEST_CODE_NOTIFICATIONS,
+            requestCodeTheListAskedWith,
             arrayOf(Manifest.permission.POST_NOTIFICATIONS),
             intArrayOf(PackageManager.PERMISSION_GRANTED)
         )
@@ -125,7 +133,7 @@ class NotificationPermissionGrantTest {
 
         val list = openRemindersList()
         list.onRequestPermissionsResult(
-            REQUEST_CODE_NOTIFICATIONS,
+            requestCodeTheListAskedWith,
             arrayOf(Manifest.permission.POST_NOTIFICATIONS),
             intArrayOf(PackageManager.PERMISSION_DENIED)
         )
@@ -148,7 +156,7 @@ class NotificationPermissionGrantTest {
         val alarm = requireNotNull(scheduledAlarm())
 
         now = dueTime
-        fire(alarm)
+        send(alarm)
 
         assertEquals("nothing is shown while the permission is denied", 0, shadowOf(notificationManager).size())
         assertEquals(
@@ -211,17 +219,12 @@ class NotificationPermissionGrantTest {
      * last step is by hand; `AlarmToNotificationRoundTripTest` is where the addressing
      * itself is checked.
      */
-    private fun fire(pendingIntent: PendingIntent) {
+    private fun send(pendingIntent: PendingIntent) {
         val alreadySent = shadowOf(context).broadcastIntents.size
         pendingIntent.send()
         shadowOf(Looper.getMainLooper()).idle()
         val sent = shadowOf(context).broadcastIntents.drop(alreadySent).single()
         ReminderBroadcastReceiver().onReceive(context, sent)
         shadowOf(Looper.getMainLooper()).idle()
-    }
-
-    private companion object {
-        /** The code the list activity asks for `POST_NOTIFICATIONS` with. */
-        const val REQUEST_CODE_NOTIFICATIONS = 0
     }
 }

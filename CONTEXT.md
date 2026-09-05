@@ -60,9 +60,10 @@ _Avoid_: remove, cancel
 
 **Reconcile**:
 The sweep that brings alarms and notifications back in line with the store.
-It runs at process start, and again when the user grants the notification
-permission, which is what makes a delivery that was suppressed while it was
-denied appear.
+Three things ask for it: every process start; the user granting the
+notification permission, which is what makes a delivery that was suppressed
+while it was denied appear; and an alarm arriving with a payload the app
+cannot read.
 _Avoid_: reschedule all, reshow, restore
 
 **First unlock**:
