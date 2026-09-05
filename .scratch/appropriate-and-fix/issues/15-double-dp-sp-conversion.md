@@ -102,3 +102,7 @@ afterwards.
   file. It is a genuine dp length applied to a layout parameter, so it has no unit bug;
   bounding it is the same shape of work as this and belongs in its own ticket.
 
+
+## Review findings (2026-09-05)
+
+Codex adversarial review: approved, no findings. The sp conversion is applied once, the 16dp margin is converted once, invalid stored values are repaired while a valid legacy "12" is kept, settings and the read share one validation, and customisation off leaves the platform header untouched.
