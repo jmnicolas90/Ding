@@ -28,11 +28,14 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.util.Log;
 import android.widget.Toast;
 
 import androidx.annotation.StringRes;
 import androidx.core.app.ActivityCompat;
 import androidx.preference.PreferenceManager;
+
+import app.ding.data.Reminder;
 
 /**
  * Stores preferences and current status of the app.
@@ -41,9 +44,15 @@ import androidx.preference.PreferenceManager;
  */
 public class Prefs {
 
+    private static final String TAG = "Prefs";
+
     public static class Defaults {
         public static final int REMINDER_DIALOG_TIMEPICKER_TEXTSIZE = 12;
         public static final int REMINDER_DIALOG_TIMEPICKER_HEIGHT = 175;
+        /**
+         * Default nag interval in minutes. Also the value in {@code preferences.xml}.
+         */
+        public static final int NAGGING_REPEAT_INTERVAL = 1;
     }
 
     public static final String PREF_KEY_RUN_ON_BOOT = "run_on_boot";
@@ -218,8 +227,28 @@ public class Prefs {
         return intent;
     }
 
+    /**
+     * The default nag interval in minutes, always within the bound {@link Reminder} enforces.
+     * <p>
+     * An older build let the settings input store any number up to {@code Integer.MAX_VALUE},
+     * and the preferences file can be edited by hand, so a stored value outside the bound is
+     * possible and must not reach a reminder: the model would refuse it. Such a value is not
+     * repaired, it is passed over — the default is used instead and the fact is logged.
+     */
     public static int getNaggingRepeatInterval(Context context) {
-        return Integer.parseInt(getStringPref(R.string.prefkey_nagging_repeat_interval, "1", context));
+        String stored = getStringPref(R.string.prefkey_nagging_repeat_interval, String.valueOf(Defaults.NAGGING_REPEAT_INTERVAL), context);
+        int interval;
+        try {
+            interval = Integer.parseInt(stored);
+        } catch (NumberFormatException ex) {
+            Log.w(TAG, "Stored nag interval \"" + stored + "\" is not a number; using " + Defaults.NAGGING_REPEAT_INTERVAL + " minute(s).");
+            return Defaults.NAGGING_REPEAT_INTERVAL;
+        }
+        if (interval < Reminder.MIN_NAGGING_REPEAT_INTERVAL || interval > Reminder.MAX_NAGGING_REPEAT_INTERVAL) {
+            Log.w(TAG, "Stored nag interval " + interval + " is outside 1.." + Reminder.MAX_NAGGING_REPEAT_INTERVAL + " minutes; using " + Defaults.NAGGING_REPEAT_INTERVAL + " minute(s).");
+            return Defaults.NAGGING_REPEAT_INTERVAL;
+        }
+        return interval;
     }
 
     public static int getReminderDialogTimePickerTextSize(Context context) {

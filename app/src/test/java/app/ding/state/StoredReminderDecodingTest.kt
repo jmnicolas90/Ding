@@ -113,6 +113,19 @@ class StoredReminderDecodingTest : FunSpec({
             DecodeResult.Unreadable(UnreadableReason.INVALID_REMINDER, tooLarge)
     }
 
+    test("a nag interval past the model's bound is an invalid reminder, not a crash") {
+        // A value an older build could write: its settings input and its number picker
+        // both took anything up to Int.MAX_VALUE. Setting it aside is the right answer
+        // for this field too — the bound is part of the model, the store is the source
+        // of truth, and the raw JSON the user is offered still holds the text and the
+        // due time. Silently clamping it here would be a write the user never made.
+        val raw =
+            """[{"id":2,"date":1788609600000,"naggingRepeatInterval":100000,"text":"x"}]"""
+
+        decodeStoredReminders(KNOWN_STORED_REMINDERS_FORMAT_VERSION, raw) shouldBe
+            DecodeResult.Unreadable(UnreadableReason.INVALID_REMINDER, raw)
+    }
+
     test("a format version from a newer build is not decoded at all") {
         // Valid JSON for this build, but a build that wrote version 2 may mean
         // something else by it. Reading it as version 1 is how a downgrade eats
