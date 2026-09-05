@@ -75,6 +75,14 @@ enum class UnreadableReason {
     /** A reminder JSON accepts but [Reminder] refuses, such as an odd or out-of-range id. */
     INVALID_REMINDER,
 
+    /**
+     * Two stored reminders share an id. Each one is a reminder on its own, but the two
+     * together are not a store the app can run on: an id is the identity of the
+     * reminder, of its notification and of both its pending intents at once, so the
+     * second reminder's alarm replaces the first's and one of them never fires.
+     */
+    DUPLICATE_ID,
+
     /** The preference holds a value of another type, so it could not even be read as text. */
     WRONG_TYPE
 }
@@ -139,11 +147,15 @@ fun readStore(
         is DecodeResult.Readable -> decoded.reminders
         DecodeResult.Empty -> emptyList()
         is DecodeResult.Unreadable ->
-            // The counter belongs to reminders nobody can read, so it goes with them:
-            // the store the app runs on until the value is set aside is empty, and an
-            // empty store allocates from 0.
+            // The reminders are gone but the ids they held are not: their notifications,
+            // alarms and pending intents are still in the OS, all keyed by those ids. So
+            // the store the app runs on until the value is set aside is empty, and its
+            // counter carries on where the old one left off.
             return StoreReading(
-                stored = StoredReminders(emptyList(), nextId = 0),
+                stored = StoredReminders(
+                    emptyList(),
+                    nextId = nextIdAfterQuarantine(counter.value, decoded.raw)
+                ),
                 unreadable = decoded.reason
             )
     }
@@ -178,6 +190,62 @@ fun nextIdToUse(storedNextId: Int?, reminders: List<Reminder>): Int {
     // Stored ids are even, so the largest one plus two is even as well.
     return if (usable) storedNextId else reminders.maxOfOrNull { it.id + 2 } ?: 0
 }
+
+/**
+ * The id counter to allocate from once an unreadable stored value has been set aside.
+ *
+ * An id is never reused within an install. The reminders leave the store when their
+ * value is set aside, but their notifications are still on screen and their alarms and
+ * pending intents are still in `AlarmManager`, all keyed by the ids the counter handed
+ * out. Giving one of those ids to a new reminder cross-wires the two: swiping the old
+ * notification away sends a mark-done for the new reminder, and the new reminder
+ * silently never fires. So the counter is durable on its own and a quarantine leaves it
+ * alone.
+ *
+ * When the counter itself cannot be used — of another type, or a number outside the
+ * range an id may take — the raw text being set aside is the only record left of which
+ * ids were handed out, and it is scanned for `"id":<number>` occurrences. That scan is
+ * best effort by nature: the text did not parse, which is why it is being set aside. It
+ * errs upwards on purpose, since a match that is not really an id only skips an id that
+ * was never used, while missing a real one hands it out twice. The answer is never
+ * below the counter's own value either — an odd counter is rounded up, not down — so a
+ * store that had already passed an id does not go back to it.
+ *
+ * The one case with no answer at all is a counter of another type together with a value
+ * that could not even be read as text: there the count starts again from 0.
+ *
+ * @param storedNextId the counter as the store holds it, or null when there is no
+ *   number there at all.
+ * @param quarantinedRaw the value being set aside, or null when it could not be read as
+ *   text.
+ */
+fun nextIdAfterQuarantine(storedNextId: Int?, quarantinedRaw: String?): Int {
+    // A negative counter is not evidence that anything was allocated, and neither is an
+    // id outside the range a reminder may hold: the app could not have handed either out.
+    val fromCounter = storedNextId?.takeIf { it in 0..Reminder.MAX_REMINDER_ID } ?: 0
+    val fromReminders = largestStoredIdIn(quarantinedRaw)?.plus(2) ?: 0
+    val highest = maxOf(fromCounter, fromReminders)
+    // Ids are even. Rounding up rather than down is what keeps the answer from landing
+    // back on an id the store had already gone past.
+    return if (highest % 2 == 0) highest else highest + 1
+}
+
+/**
+ * The largest even id in range that an `"id":<number>` occurrence in [raw] names, or
+ * null when there is none.
+ */
+private fun largestStoredIdIn(raw: String?): Int? = raw
+    ?.let { STORED_ID.findAll(it) }
+    ?.mapNotNull { it.groupValues[1].toIntOrNull() }
+    ?.filter { it % 2 == 0 && it in 0..Reminder.MAX_REMINDER_ID }
+    ?.maxOrNull()
+
+/**
+ * How a reminder's id is written in the stored JSON, allowing for the whitespace a
+ * hand-edited file may have. Matching this inside a reminder's text as well is harmless
+ * — see [nextIdAfterQuarantine] on why the scan errs upwards.
+ */
+private val STORED_ID = Regex("\"id\"\\s*:\\s*(\\d+)")
 
 /**
  * What the store holds for the id counter. A counter that is not there at all is a
@@ -279,9 +347,18 @@ private fun decodeVersion1(rawJson: String): DecodeResult {
         return DecodeResult.Unreadable(UnreadableReason.MALFORMED_JSON, rawJson)
     }
     return try {
-        DecodeResult.Readable(
+        val reminders =
             Json.decodeFromJsonElement(ListSerializer(Reminder.serializer()), element)
-        )
+        // Uniqueness is a property of the list, so it cannot be checked one reminder at
+        // a time the way `Reminder`'s own require is. Two reminders sharing an id share
+        // one alarm slot, one notification and one request code, and the last one
+        // scheduled silently replaces the first, so the store is set aside whole
+        // rather than half-repaired by picking a winner.
+        if (reminders.distinctBy { it.id }.size != reminders.size) {
+            DecodeResult.Unreadable(UnreadableReason.DUPLICATE_ID, rawJson)
+        } else {
+            DecodeResult.Readable(reminders)
+        }
     } catch (e: SerializationException) {
         // A missing field, a field of the wrong type, a shape that is not a list.
         DecodeResult.Unreadable(UnreadableReason.SCHEMA_MISMATCH, rawJson)

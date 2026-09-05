@@ -22,6 +22,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.core.app.NotificationManagerCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import app.ding.data.Reminder
 import app.ding.state.KNOWN_STORED_REMINDERS_FORMAT_VERSION
@@ -29,6 +30,7 @@ import app.ding.state.QuarantinedReminders
 import app.ding.state.ReminderStore
 import app.ding.state.StoreReading
 import app.ding.state.StoredReminders
+import app.ding.state.nextIdAfterQuarantine
 import app.ding.state.quarantineToKeep
 import app.ding.state.readQuarantine
 import app.ding.state.readStore
@@ -80,13 +82,14 @@ object ReminderStorage {
 
     /**
      * What the normal keys hold once a value has been set aside: no reminders, this
-     * build's format version, and the id counter back at 0. The counter belongs to
-     * reminders nobody can read, so it goes with them; the ids that mattered are in
-     * the raw value that is kept.
+     * build's format version, and the id counter carried over rather than reset. The
+     * reminders leave the store, but their notifications, alarms and pending intents
+     * are still in the OS under the ids the counter handed out, so an id it has already
+     * given away may never be given away again — see `nextIdAfterQuarantine`.
      */
-    private val EMPTIED_STATE = StatePrefValues(
+    private fun emptiedState(nextId: Int) = StatePrefValues(
         remindersJson = EMPTY_REMINDERS_JSON,
-        nextId = 0,
+        nextId = nextId,
         formatVersion = KNOWN_STORED_REMINDERS_FORMAT_VERSION
     )
 
@@ -129,6 +132,17 @@ object ReminderStorage {
          * through leaves the store exactly as unreadable as it was, so the command
          * this was the first step of fails rather than carrying on as if the value had
          * been kept.
+         *
+         * The id counter is carried over in that same commit rather than emptied with
+         * the reminders, because the ids it handed out are still live outside the
+         * store. Every notification of a reminder that was in it is still on screen
+         * under its id, and every alarm still in `AlarmManager` under the same one.
+         *
+         * That is also why the notifications are cancelled here, once the commit has
+         * gone through: the reminders behind them are no longer in the store, so
+         * nothing would ever take them off the screen, and the user would be left
+         * tapping notifications for reminders the app can no longer find. An alarm that
+         * fires for one of them afterwards takes the missing-reminder cleanup path.
          */
         override fun setAsideUnreadable(): StoredReminders? {
             val prefs = Prefs.getStatePrefs(context)
@@ -150,18 +164,28 @@ object ReminderStorage {
                         "${existing.quarantinedAt} is kept."
                 )
             }
+            // Only the value being set aside now is scanned, not the one already kept:
+            // the counter was carried over by that earlier set-aside too, so it is
+            // already past every id the earlier value held.
+            val nextId = nextIdAfterQuarantine(previous.state.nextId, candidate.raw)
             val result = writeWithRollback(
                 previous = previous,
-                next = SetAsideValues(state = EMPTIED_STATE, quarantined = keep),
+                next = SetAsideValues(state = emptiedState(nextId), quarantined = keep),
                 commit = ::commitSetAsideValues
             )
             Log.e(
                 TAG,
                 "The stored reminders could not be read; set aside for the user to keep " +
-                    "or discard, committed=${result.committed}"
+                    "or discard, committed=${result.committed}. Ids are allocated from " +
+                    "$nextId from now on."
             )
-            // The store is empty from here on, and its counter starts again from 0.
-            return if (result.committed) StoredReminders(emptyList(), nextId = 0) else null
+            if (!result.committed) {
+                return null
+            }
+            NotificationManagerCompat.from(context).cancelAll()
+            // The store is empty from here on, but its counter is not: no id an earlier
+            // reminder of this install held is ever handed out again.
+            return StoredReminders(emptyList(), nextId = nextId)
         }
 
         /**

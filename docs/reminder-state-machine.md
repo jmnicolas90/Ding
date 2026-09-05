@@ -214,7 +214,9 @@ mutation on `ReminderManager`:
 2. Set aside the stored value if the store reports it cannot be read, and stop
    with a persistence failure if that write does not commit. Reading never
    writes, so this is the only place the recovery happens, and the first
-   command of a process is the startup Reconcile.
+   command of a process is the startup Reconcile. The id counter is carried
+   over in that same commit rather than emptied with the reminders, and every
+   notification of the app's is cancelled once it commits (ticket 21).
 3. Read the stored reminder (or all of them, for Reconcile).
 4. Call the transition function with the current time.
 5. On `Updated` or `Removed`, write the whole list and check the commit

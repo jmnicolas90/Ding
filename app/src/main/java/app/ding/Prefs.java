@@ -98,7 +98,10 @@ public class Prefs {
     static final String PREF_STATE_REMINDERS_UNREADABLE_AT = "reminders_unreadable_at";
 
     /**
-     * The next ID for a reminder.
+     * The next ID for a reminder. Durable on its own: it survives an unreadable
+     * {@link #PREF_STATE_CURRENT_REMINDERS} being set aside, because the IDs it has
+     * already handed out are still live outside the store as notification IDs and
+     * pending intent request codes, and no ID may ever be handed out twice.
      */
     static final String PREF_STATE_NEXTID = "nextid";
 
