@@ -1,7 +1,7 @@
 # 28 — Prove a real alarm fires, on a Gradle-managed AOSP device
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: 27
 
 ## Question
@@ -56,3 +56,60 @@ sequenced after this one precisely so it can use this harness.
 
 **Done when** the device task is green locally and in CI on `main`, and the
 test fails if the reminder is added with a due time in the past.
+
+## Resolution (2026-09-05)
+
+**Step 1 first: the managed device boots on this machine, so the fallback was
+not needed.** `./gradlew :app:pixel6aospSetup` and then
+`:app:pixel6aospDebugAndroidTest`, both with
+`-Pandroid.testoptions.manageddevices.emulator.gpu=host` and outside the agent's
+Bash sandbox, ran green at the first attempt: the emulator booted, the app and
+the test APK installed, and the one test passed, the whole task in 37 seconds.
+Two facts explain why it does not die the way the hand-launched
+`bench-pixel6-aosp` does. Gradle keeps its own AVD under
+`~/.android/avd/gradle-managed` (`dev36_default_x86_64_Pixel_6`), which another
+project on this machine had already created, so nothing was downloaded or
+first-booted; and the renderer is the same `-gpu host` the emulator recipe uses,
+passed as a Gradle property rather than an emulator flag. AGP's default renderer
+was not tried — it is what segfaults here — and neither was the sandbox, since
+the recipe already says the sandbox kills emulators. So
+`connectedDebugAndroidTest` stays documented as the fallback and is not what
+runs.
+
+What landed:
+
+- **The device** `pixel6aosp` under `testOptions.managedDevices.localDevices` in
+  `app/build.gradle` — Pixel 6, API 36, `systemImageSource = "aosp"`, plus
+  `testedAbi = "x86_64"`, which AGP 8.13 asks for by name on every run because
+  AGP 9 will otherwise default it to `arm64-v8a` and this host's image cannot
+  translate that. The `androidx.test` runner, rules, core and JUnit extension go
+  in as `androidTestImplementation` beside `junit:junit`; none is a Play Services
+  group, so the Google guard is untouched.
+- **The test** `app/src/androidTest/java/app/ding/AlarmFiresOnDeviceTest.kt`. It
+  grants `POST_NOTIFICATIONS` with a `GrantPermissionRule`, adds a reminder due
+  five seconds out, and fires nothing itself: the platform's `AlarmManager` wakes
+  the receiver. The notification is polled out of
+  `NotificationManager.getActiveNotifications` for up to a minute and asserted
+  under `reminder.id`; the reminder is deleted and the notification cancelled
+  afterwards. The device logcat the run captures shows the whole trip — `Set
+  alarm ("exact and allow while idle") for 18:10:50` and, five seconds later,
+  `Deliver(reminderId=0, expectedDueTime=…): Updated(… status=NOTIFIED)`.
+- **The pair**: `scripts/check-device.sh` and `.github/workflows/device.yml`,
+  running the same Gradle task. The script's preflight is now the gate's own G0,
+  moved into `scripts/check-sdk-platform.sh` and called by both, because a
+  preflight copied into two files is one that will eventually check two different
+  things. The one deliberate difference between script and workflow is the
+  renderer and not the task: `-gpu host` locally, AGP's default on a runner with
+  no GPU.
+- **`CLAUDE.md`** gained a *The device pair* section after the gate — the two
+  commands, when each runs, the drift rule, the fallback, and where the report
+  and the per-test logcat are — and the merge step in *Working conventions* now
+  names the device script.
+
+**Done when, checked.** The device task is green locally. The test is not
+vacuous: with the due time moved into the past it fails with
+`Refused(reason=PastDue)`, the mutation the ticket names, and with the poll
+looking for `id + 1` — a notification that never arrives, which is what a
+failure to fire looks like — it fails with the "the alarm did not fire" message
+after its full minute of patience. Green in CI on `main` is the half only the
+merge can establish.
