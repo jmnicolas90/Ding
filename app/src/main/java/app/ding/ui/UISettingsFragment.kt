@@ -28,6 +28,9 @@ import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import app.ding.Prefs
 import app.ding.R
+import app.ding.data.MAX_TIME_PICKER_TEXT_SIZE_SP
+import app.ding.data.MIN_TIME_PICKER_TEXT_SIZE_SP
+import app.ding.data.timePickerTextSizeFromStored
 
 class UISettingsFragment : PreferenceFragmentCompat() {
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
@@ -80,20 +83,23 @@ class UISettingsFragment : PreferenceFragmentCompat() {
                 "${Prefs.getReminderDialogTimePickerTextSize(context)} ${getString(R.string.preference_reminder_dialog_timepicker_sizes_recommended,
                     Prefs.Defaults.REMINDER_DIALOG_TIMEPICKER_TEXTSIZE.toString())}"
             }
-            // Validation
+            // Validation. The same decision the reminder dialog reads with, so a size the
+            // editor accepts is a size the dialog uses.
             onPreferenceChangeListener =
                 Preference.OnPreferenceChangeListener { _: Preference?, newValue: Any ->
-                    try {
-                        val i = newValue.toString().toInt()
-                        if (i > 0) {
-                            startAddReminderActivity()
-                            return@OnPreferenceChangeListener true
-                        }
-                    } catch (ex: NumberFormatException) {
-                        // Incorrect format, handled below
+                    if (timePickerTextSizeFromStored(newValue.toString()) != null) {
+                        startAddReminderActivity()
+                        return@OnPreferenceChangeListener true
                     }
-                    Toast.makeText(context, R.string.preference_reminder_dialog_timepicker_text_size_format_error, Toast.LENGTH_LONG)
-                        .show()
+                    Toast.makeText(
+                        context,
+                        getString(
+                            R.string.preference_reminder_dialog_timepicker_text_size_format_error,
+                            MIN_TIME_PICKER_TEXT_SIZE_SP,
+                            MAX_TIME_PICKER_TEXT_SIZE_SP
+                        ),
+                        Toast.LENGTH_LONG
+                    ).show()
                     false
                 }
         }
