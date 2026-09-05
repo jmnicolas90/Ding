@@ -64,6 +64,12 @@ interface ReminderStore {
     /**
      * Write the whole store, and report whether the write actually committed.
      * A false answer means nothing was stored, so nothing may be acted on.
+     *
+     * The contract on failure: after a write that reports failure, every later
+     * [read] returns the snapshot from before that write. An implementation whose
+     * underlying commit does not manage that has to put the previous values back
+     * itself — see [writeWithRollback] — because the runner and its callers treat a
+     * failed write as something that never happened at all.
      */
     fun write(stored: StoredReminders): Boolean
 

@@ -44,7 +44,9 @@ no `else`, so the compiler is what forces the handling. Where the difference
 between the outcomes does not matter, the two cases are `is TransitionOutcome`
 and `PersistenceFailed`.
 
-**The store already reported the truth; nothing else did.** The shared-preferences
+**The store reported the truth but did not restore it** (corrected on 2026-09-05
+— the first version of this section said the lie was only in the runner). The
+shared-preferences
 adapter in `ReminderStorage.kt` uses `commit()` and returns its result (ticket
 10); a comment now says why `apply()` is wrong here — it writes in the
 background and returns nothing, so a failed durable write would be invisible.
@@ -111,7 +113,77 @@ effects (step 4 of "The runner"); the implementation matches it, so there was no
 contradiction to fix.
 
 **Consciously left out.** No retry, no queue and no crash reporter: a failed
-commit is reported and left alone, because the store keeps its previous content
-and the next Reconcile or the user's next press is the retry. The dialogs are not
+commit is reported and rolled back, and the next Reconcile or the user's next
+press is the retry. The dialogs are not
 tested — the module still has no Android test harness, as ticket 11 recorded.
 Nothing was moved off the main thread; that is still open in the map.
+
+## Review findings (2026-09-05)
+
+**A failed write still changed what the store read back** (high) — confirmed
+against AOSP: `SharedPreferencesImpl.EditorImpl.commit()` calls
+`commitToMemory()` before `enqueueDiskWrite`, and a failed durable write does
+not roll the in-memory map back. So the adapter's `commit()` returning false
+had already handed the new reminders JSON and the new id counter to every later
+read in the process. A failed Add advanced the id and left a phantom reminder
+that the next successful command persisted without an alarm; a failed Deliver
+left the reminder looking `NOTIFIED`, so the alarm that had already been
+consumed and an in-process Reconcile both skipped it. The claim above that the
+runner was the only thing lying was wrong, and is corrected in place.
+
+Disposition: **fixed**.
+
+- `ReminderStore.write` now states the contract: after a write that reports
+  failure, every later `read` returns the snapshot from before that write.
+- The shared-preferences adapter honours it. It reads the two values its editor
+  writes before writing them, and on a false from `commit()` puts the previous
+  ones back through a second `commit()`, logging both results. The rollback
+  restores the in-memory map whatever its own durable write does, because that
+  half is set before the disk write and is not tied to its result; the disk half
+  is atomic (backup-file swap), so the file holds either the old or the new
+  content in full and the rollback moves it back towards the old one. A rollback
+  whose own commit fails is still reported as a failed write.
+- The decision is a pure function, `writeWithRollback` in
+  `app/src/main/java/app/ding/state/WriteWithRollback.kt`, so the Android
+  adapter keeps no untested logic and the rollback is tested on a plain JVM.
+  `ReminderTransition.kt` and the runner stay free of Android imports.
+- The test fake modelled the bug away: it returned before mutating, so a failed
+  write was invisible by construction. Its commit now behaves like shared
+  preferences — visible first, durable second, no undo — and the fake honours
+  the contract through the same `writeWithRollback` the adapter uses. The runner
+  is therefore tested against the contract, and the rollback is tested on its
+  own.
+
+**Red first.** With the fake made honest and the rollback not yet written, the
+three new runner tests fail on the finding, and so do the four tests this ticket
+added, which had been passing only because the fake hid it:
+
+```
+an add whose commit fails leaves the id for the next add to take
+    expected:<4> but was:<6>
+a mark done whose commit fails leaves its own reminder notified
+    expected:<NOTIFIED> but was:<DONE>
+a deliver whose commit fails leaves the reminder for reconcile to deliver once
+    data class diff for app.ding.state.StoredReminders
+a command after a failed write works normally
+    expected:<Updated(... status=DONE))> but was:<Unchanged>
+```
+
+The last one is the Deliver symptom in miniature: the retry found the reminder
+already looking done in memory and had nothing to do.
+
+**Tests added** (`ReminderCommandRunnerTest`, plus a new
+`app/src/test/java/app/ding/state/WriteWithRollbackTest.kt`):
+
+- *an add whose commit fails leaves the id for the next add to take* — after the
+  failure and a successful add, exactly one reminder exists, it has the id the
+  failed add was given, and its alarm is set.
+- *a deliver whose commit fails leaves the reminder for reconcile to deliver
+  once* — the reminder is still `SCHEDULED` in the store after the failure, and
+  the next Reconcile delivers it exactly once.
+- *a mark done whose commit fails leaves its own reminder notified* — of two
+  selected reminders, the one whose write failed is still `NOTIFIED` after the
+  other has been marked done.
+- *a commit that succeeds stores the new values and rolls nothing back*, *a
+  commit that fails puts the previous values back*, *a rollback whose own commit
+  fails still reports the write as failed*.

@@ -203,6 +203,69 @@ class ReminderCommandRunnerTest : FunSpec({
             ReminderEffect.CancelNotification(2)
         )
     }
+
+    // A failed write must leave the store as it was, or the reminder it half-wrote
+    // haunts every later command in the same process.
+
+    test("an add whose commit fails leaves the id for the next add to take") {
+        val store = FakeStore(StoredReminders(emptyList(), nextId = 4), writeSucceeds = false)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0) shouldBe
+            PersistenceFailed
+        store.writeSucceeds = true
+        val outcome = runner.add(NOW + 120_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        val added = (outcome as TransitionOutcome.Updated).reminder
+        // The failed add allocated nothing: the id it was given is still free, and it
+        // left no phantom reminder behind for this write to persist without an alarm.
+        added.id shouldBe 4
+        store.read() shouldBe StoredReminders(listOf(added), nextId = 6)
+        executor.effects shouldBe listOf(
+            ReminderEffect.SetAlarm(4, NOW + 120_000, AlarmKind.DELIVER, NOW + 120_000)
+        )
+    }
+
+    test("a deliver whose commit fails leaves the reminder for reconcile to deliver once") {
+        val dueTime = NOW - 60_000
+        val stored = StoredReminders(listOf(scheduled(dueTime)), nextId = 4)
+        val store = FakeStore(stored, writeSucceeds = false)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.run(ReminderCommand.Deliver(2, dueTime)) shouldBe PersistenceFailed
+        // Still scheduled, so the consumed alarm is not the only chance left.
+        store.read() shouldBe stored
+        store.read().reminders.single().status shouldBe Status.SCHEDULED
+
+        store.writeSucceeds = true
+        runner.reconcileAll()
+
+        executor.effects.filterIsInstance<ReminderEffect.ShowNotification>() shouldHaveSize 1
+        store.read().reminders.single().status shouldBe Status.NOTIFIED
+    }
+
+    test("a mark done whose commit fails leaves its own reminder notified") {
+        val first = scheduled(NOW - 60_000).copy(status = Status.NOTIFIED)
+        val second = first.copy(id = 4, text = "Take the bins out")
+        val store = FakeStore(
+            StoredReminders(listOf(first, second), nextId = 6),
+            writeSucceeds = false
+        )
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        // Two reminders selected in the list; the write fails for the first one only.
+        runner.run(ReminderCommand.MarkDone(2)) shouldBe PersistenceFailed
+        store.writeSucceeds = true
+        runner.run(ReminderCommand.MarkDone(4)) shouldBe
+            TransitionOutcome.Updated(second.copy(status = Status.DONE))
+
+        val reminders = store.read().reminders.associateBy { it.id }
+        reminders.getValue(2).status shouldBe Status.NOTIFIED
+        reminders.getValue(4).status shouldBe Status.DONE
+    }
 })
 
 /** The one scheduled reminder the payloads above name, due at [dueTime]. */
@@ -223,6 +286,12 @@ private const val NOW = 1788609600000L
 /**
  * A store a test can drive. Turn [writeSucceeds] off to make the commit fail, the
  * way shared preferences do when the durable write does not go through.
+ *
+ * The commit is modelled the way shared preferences really behave: the new values
+ * become visible to every later read *before* the durable write is attempted, and
+ * a failed durable write does not take them back. Honouring the [ReminderStore]
+ * contract on top of that is the store's own job, so this fake does it the same
+ * way the shared-preferences adapter does.
  */
 private class FakeStore(
     private var stored: StoredReminders,
@@ -234,12 +303,17 @@ private class FakeStore(
     override fun read(): StoredReminders = stored
 
     override fun write(stored: StoredReminders): Boolean {
-        if (!writeSucceeds) {
-            return false
+        val result = writeWithRollback(this.stored, stored, ::commit)
+        if (result.committed) {
+            writes.add(stored)
         }
-        writes.add(stored)
-        this.stored = stored
-        return true
+        return result.committed
+    }
+
+    /** Visible first, durable second — and a failed durable write keeps the new values. */
+    private fun commit(values: StoredReminders): Boolean {
+        stored = values
+        return writeSucceeds
     }
 
     override fun announceChange() {
