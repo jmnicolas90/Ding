@@ -102,6 +102,10 @@ android {
         unitTests.all {
             useJUnitPlatform()
         }
+        // The Robolectric tests read the app's own resources and manifest — string
+        // keys, the preference screens, the broadcast receiver — so the unit-test
+        // stage has to be given them.
+        unitTests.includeAndroidResources true
     }
 
     // The lint gate fails on errors, not on warnings. There are pre-existing
@@ -132,10 +136,24 @@ dependencies {
     //noinspection GradleDependency
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycle_version"
 
-    testImplementation 'org.junit.jupiter:junit-jupiter:6.0.0'
+    // Jupiter and the vintage engine are two halves of one JUnit Platform release
+    // and have to move together.
+    def junit_platform_version = '6.0.0'
+    testImplementation "org.junit.jupiter:junit-jupiter:$junit_platform_version"
     testImplementation "io.kotest:kotest-framework-engine:$kotest_version"
     testImplementation "io.kotest:kotest-assertions-core:$kotest_version"
     testImplementation "io.kotest:kotest-runner-junit5:$kotest_version"
+
+    // Robolectric runs the Android half — alarms, notifications, pending intents,
+    // shared preferences — in the JVM unit-test stage, so the glue in
+    // ReminderManager.kt is tested on every commit instead of only on a device. Its
+    // tests are JUnit 4 classes, which is the only style Robolectric runs, so the
+    // vintage engine goes on the JUnit Platform run beside the Kotest specs.
+    // org.robolectric is not a Google Play Services group, so the Google guard is
+    // untouched; keep it that way.
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.16.1'
+    testRuntimeOnly "org.junit.vintage:junit-vintage-engine:$junit_platform_version"
 }
 
 // ---------------------------------------------------------------------------
