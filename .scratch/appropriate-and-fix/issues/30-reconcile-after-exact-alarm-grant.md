@@ -1,7 +1,7 @@
 # 30 — Reconcile when exact-alarm access is granted again
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: 27
 
 ## Question

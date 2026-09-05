@@ -50,7 +50,7 @@ reminder id, except Add, which creates one.
 | `Reschedule` | new due time, text, nag interval | Edit dialog |
 | `Edit` | text, nag interval | Edit dialog |
 | `Delete` | – | List |
-| `Reconcile` | – (applies to every stored reminder) | Application start; notification permission granted; unreadable alarm payload |
+| `Reconcile` | – (applies to every stored reminder) | Application start; notification permission granted; exact-alarm access changed; unreadable alarm payload |
 
 Which of `Edit` or `Reschedule` the edit dialog issues is decided by the due
 time, in every starting state (ticket 11). The dialog opens on the reminder's
@@ -217,8 +217,19 @@ appear until the next process start. The re-show it produces is the silent one
 of the `NOTIFIED` row above; the user is looking at the app at that moment, so
 there is nothing to alert them to.
 
-Third, the alarm receiver reconciles when it is handed a payload it cannot read;
-the reason is given with the stale-alarm rule above. Those three are the whole
+Third, it runs when the exact-alarm access changes on Android 12 and 12L
+(ticket 30). Revoking `SCHEDULE_EXACT_ALARM` there stops the process and deletes
+the app's exact alarms, so a `SCHEDULED` reminder is left holding nothing that
+will fire, and Android's documented answer is the broadcast
+`ExactAlarmPermissionReceiver` now takes. It reconciles whichever way the state
+went: on the grant the alarms go back in exact, and on the revocation the
+inexact fallback in `AlarmManagerUtil.scheduleExact` replaces what Android has
+just deleted, because a reminder that may fire late beats one that cannot fire
+at all. From Android 13 on `USE_EXACT_ALARM` makes the grant permanent and the
+broadcast is never sent.
+
+Fourth, the alarm receiver reconciles when it is handed a payload it cannot read;
+the reason is given with the stale-alarm rule above. Those four are the whole
 list, and `CONTEXT.md` and the KDoc on `ReminderManager.reconcileAllReminders`
 carry the same one.
 
