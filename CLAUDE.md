@@ -109,13 +109,26 @@ extra, `ReminderBroadcastReceiver`, and out to the notification on screen, so
 the glue in `ReminderManager.kt` — the four numbers that are one identity
 across alarms, notifications and pending intents — is checked on every commit
 instead of only on a device; `SettingsRepairTest` does the same for the reads
-in `Prefs.java` that replace a stored value of the wrong type. Two things to
-know when writing more of them: Robolectric needs the app's resources, hence
-`unitTests.includeAndroidResources` in `app/build.gradle`, and each class pins
-one SDK level with `@Config(sdk = [36])`; and it delivers a broadcast only to a
-receiver a test registered, never to one the manifest declares, so a fired
-pending intent is handed to the receiver by the test, after checking which
-class the intent names. What Robolectric cannot answer — whether a real
+in `Prefs.java` that replace a stored value of the wrong type.
+`NotificationPermissionGrantTest` and `ExactAlarmPermissionGrantTest` cover the
+two permissions whose loss silently costs a delivery.
+
+The three that drive reminders share `RobolectricReminderHarness`, a base class
+holding the driving and none of the asserting: the fixed clock, the
+notification channel, the add, the alarm readers, and the fired pending intent
+handed to the receiver. It grants nothing, so a test about a permission being
+absent starts where it needs to. Three things to know when writing more of
+them: Robolectric needs the app's resources, hence
+`unitTests.includeAndroidResources` in `app/build.gradle`; each concrete class
+pins its own SDK level with `@Config`, which the harness deliberately does not
+carry, because the level is part of what a test is about — `@Config(sdk = [36])`
+for most, `@Config(sdk = [31, 32])` for the exact-alarm revocation path that
+exists only there; and Robolectric delivers a broadcast only to a receiver a
+test registered, never to one the manifest declares, so a fired pending intent
+is handed to the receiver by the test, after checking which class the intent
+names. When the manifest entry is itself the thing under test, the test asks
+`queryBroadcastReceivers` which class would get the broadcast and instantiates
+that answer, so deleting the entry fails the test. What Robolectric cannot answer — whether a real
 `AlarmManager` fires at all — is the device pair below.
 
 Not every script under `scripts/` is a gate.

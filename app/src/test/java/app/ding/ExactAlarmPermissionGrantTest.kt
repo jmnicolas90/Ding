@@ -54,7 +54,7 @@ class ExactAlarmPermissionGrantTest : RobolectricReminderHarness() {
 
     @Test
     fun `an alarm the revocation deleted is back in its slot when access is granted again`() {
-        exactAlarmsAreAllowed(true)
+        allowExactAlarms(true)
         val dueTime = now + oneMinute
         val reminder = addReminder(dueTime)
         assertTrue(
@@ -70,7 +70,7 @@ class ExactAlarmPermissionGrantTest : RobolectricReminderHarness() {
             storedReminder(reminder.id).status
         )
 
-        exactAlarmsAreAllowed(true)
+        allowExactAlarms(true)
         deliverThePermissionStateChange()
 
         val alarm = scheduledAlarms().single()
@@ -90,7 +90,7 @@ class ExactAlarmPermissionGrantTest : RobolectricReminderHarness() {
 
     @Test
     fun `the revocation itself leaves an inexact alarm rather than none`() {
-        exactAlarmsAreAllowed(true)
+        allowExactAlarms(true)
         val dueTime = now + oneMinute
         val reminder = addReminder(dueTime)
 
@@ -108,8 +108,8 @@ class ExactAlarmPermissionGrantTest : RobolectricReminderHarness() {
         assertFalse("inexact, because that is all the app may ask for now", alarm.isAllowWhileIdle)
     }
 
-    /** What the user's answer in Settings leaves behind for `canScheduleExactAlarms`. */
-    private fun exactAlarmsAreAllowed(allowed: Boolean) {
+    /** Leave behind what the user's answer in Settings leaves for `canScheduleExactAlarms`. */
+    private fun allowExactAlarms(allowed: Boolean) {
         ShadowAlarmManager.setCanScheduleExactAlarms(allowed)
     }
 
@@ -119,7 +119,7 @@ class ExactAlarmPermissionGrantTest : RobolectricReminderHarness() {
      * drained one by one out of the shadow, which is the same thing seen from the app.
      */
     private fun androidRevokesTheAccessAndDeletesTheAlarms() {
-        exactAlarmsAreAllowed(false)
+        allowExactAlarms(false)
         while (scheduledAlarms().isNotEmpty()) {
             shadowOf(alarmManager).getNextScheduledAlarm()
         }

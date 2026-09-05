@@ -60,7 +60,7 @@ import java.util.Date
 abstract class RobolectricReminderHarness {
 
     /** A fixed instant to hang the test's times off; nothing depends on which one. */
-    protected val startOfTest = 1788598800000L // 2026-09-05T09:00:00Z
+    private val startOfTest = 1788598800000L // 2026-09-05T09:00:00Z
 
     protected val oneMinute = 60_000L
 
