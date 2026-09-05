@@ -147,3 +147,18 @@ inspection and by the fact that `RESULT_OK` is now set in exactly two places.
 - **No test on the device.** The module still has no Android test harness, so the
   wiring — which listener calls `submit`, which branch calls which finish — is covered
   by the emulator run above and by reading the code, not by an automated test.
+
+## Review findings (2026-09-05)
+
+- **A queued second tap bypasses the guard** (medium) — recorded, **not fixed**,
+  by the maintainer's decision to stop the fix rounds for the session. Button
+  and keyboard callbacks run serially on the main thread, so a second tap made
+  while `onDone` is running waits in the input queue; after a refusal or a
+  `PersistenceFailed` the guard releases at once, and the queued tap runs as a
+  new submission. After a refusal that is a second refusal; after a failed write
+  it is a retry the user did not make deliberately. The JVM test covers only
+  recursive re-entry. Fix when picked up: an Android-side debounce shared by the
+  button and the keyboard action that keeps activations queued during a
+  submission blocked until the input queue drains, then permits a retry, with
+  an instrumentation test using a blocking first submission and two real input
+  events (which is also ticket 18's territory).
