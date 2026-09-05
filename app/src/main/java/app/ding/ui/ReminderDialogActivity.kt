@@ -56,8 +56,8 @@ import app.ding.data.Reminder
 import app.ding.data.Reminder.Companion.builder
 import app.ding.state.toMinutePrecision
 import app.ding.util.DateTimeUtil
+import app.ding.util.SubmissionGuard
 import app.ding.util.TextBasedTimeInput.TimeMatcher
-import app.ding.util.setOneTimeClickListener
 import java.util.Calendar
 import java.util.Date
 
@@ -98,6 +98,13 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
     @JvmField
     protected var naggingRepeatInterval = 0
 
+    /**
+     * Lets the Add/OK button and the keyboard's action key submit once between them.
+     * The dialog stays open after a refused or failed submission, and the guard is
+     * released then, so pressing the button again really is a retry.
+     */
+    private val submissionGuard = SubmissionGuard { isFinishing }
+
     private enum class DateSelectionMode {
         /**
          * The date is derived from the chosen time, so that this time lies within the next 24 hours.
@@ -116,7 +123,8 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
 
         // Note: This adds a warning in logcat "OnBackInvokedCallback is not enabled for the application",
         // but this is about predictive back navigation, and the callback works.
-        onBackPressedDispatcher.addCallback { completeActivity() }
+        // Back abandons the dialog: nothing was written, so the caller is told so.
+        onBackPressedDispatcher.addCallback { finishWithoutChange() }
 
         nameTextView = findViewById(R.id.nameTextView)
         addButton = findViewById(R.id.addButton)
@@ -160,7 +168,7 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
         nameTextView.setRawInputType(InputType.TYPE_CLASS_TEXT)
         nameTextView.setOnEditorActionListener { _: TextView?, actionId: Int, _: KeyEvent? ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
-                onDone()
+                submit()
                 return@setOnEditorActionListener true
             }
             false
@@ -268,7 +276,7 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
                 addKbCloseOnTouch(this)
             }
         }
-        addButton.setOneTimeClickListener { onDone() }
+        addButton.setOnClickListener { submit() }
         naggingRepeatInterval = Prefs.getNaggingRepeatInterval(this)
     }
 
@@ -607,7 +615,21 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
     }
 
     /**
+     * Submit what the dialog holds, unless a submission is already running or one has
+     * already closed the dialog. The Add/OK button and the keyboard's action key both
+     * come through here, so a press on one while the other is being handled does
+     * nothing.
+     */
+    private fun submit() {
+        submissionGuard.submit { onDone() }
+    }
+
+    /**
      * Action to be executed on hitting the main "Add" or "OK" button.
+     *
+     * It runs on the main thread and either finishes the activity or returns with the
+     * dialog still open, which is what releases the guard for the next press. Call it
+     * through [submit], never directly.
      */
     protected abstract fun onDone()
     protected fun makeToast(reminder: Reminder) {
@@ -642,11 +664,32 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
     }
 
     /**
-     * Finish the activity with RESULT_OK, removing the task on Lollipop and above.
+     * Finish after a reminder was added or changed, telling the caller RESULT_OK.
+     *
+     * Only a transition outcome that wrote something may come through here. There used
+     * to be one way out of the dialog and it always set RESULT_OK, so backing out
+     * without submitting, or after a write that did not commit, reported an add or an
+     * edit that had not happened.
+     *
+     * Both ways out remove the task, not only the activity: the add and edit dialogs
+     * each run as the root of their own task (`singleTask` with their own
+     * `taskAffinity`), so leaving it behind would put a used dialog under recent tasks.
+     * That is also why the back callback exists at all — plain back would finish the
+     * activity and keep the task.
      */
-    protected fun completeActivity() {
+    protected fun finishAfterChange() {
         setResult(RESULT_OK)
-        finishAndRemoveTask() // Adding the reminder completes this task, the dialog should not stay under recent tasks.
+        finishAndRemoveTask()
+    }
+
+    /**
+     * Finish without having changed any reminder, telling the caller RESULT_CANCELED:
+     * back, or a submission that turned out to have nothing to write. Removes the task
+     * for the same reason [finishAfterChange] does.
+     */
+    protected fun finishWithoutChange() {
+        setResult(RESULT_CANCELED)
+        finishAndRemoveTask()
     }
 
     /**

@@ -33,10 +33,13 @@ import app.ding.state.initialDueTimeForEdit
 import java.util.Calendar
 
 /**
- * Shows a dialog allowing to edit a reminder. Finishes with [.RESULT_OK] if the reminder has been edited.
+ * Shows a dialog allowing to edit a reminder. Finishes with `RESULT_OK` when the reminder
+ * was changed, and with `RESULT_CANCELED` when it was not — a reminder that is no longer
+ * in the store, or backing out. A refused due time and a write that did not commit leave
+ * the dialog open so the input can be corrected and sent again.
  *
  *
- * Has to be started with the intent provided by [.getIntentEditReminder].
+ * Has to be started with the intent provided by [getIntentEditReminder].
  */
 class EditReminderDialogActivity : ReminderDialogActivity() {
     /**
@@ -100,7 +103,8 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
         } catch (e: ReminderNotFoundException) {
             Log.w("AddReminder", "Intent contains invalid reminder ID.")
             Toast.makeText(this, R.string.error_msg_reminder_not_found, Toast.LENGTH_LONG).show()
-            completeActivity()
+            // Nothing to edit and nothing was changed.
+            finishWithoutChange()
         }
     }
 
@@ -119,7 +123,7 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
         when (val result = ReminderManager.run(this, command)) {
             is TransitionOutcome.Updated -> {
                 makeToast(result.reminder)
-                completeActivity()
+                finishAfterChange()
             }
             is TransitionOutcome.Refused -> when (result.reason) {
                 // A due time that is not in the future: say so and leave the dialog
@@ -145,7 +149,7 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
             TransitionOutcome.Removed, TransitionOutcome.Unchanged -> {
                 Log.w("EditReminder", "The reminder was not updated: $result")
                 Toast.makeText(this, R.string.error_msg_reminder_not_found, Toast.LENGTH_LONG).show()
-                completeActivity()
+                finishWithoutChange()
             }
         }
     }

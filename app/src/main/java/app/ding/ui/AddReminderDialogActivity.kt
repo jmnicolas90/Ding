@@ -27,7 +27,10 @@ import app.ding.state.RefusalReason
 import app.ding.state.TransitionOutcome
 
 /**
- * Shows a dialog allowing to add a reminder. Finishes with [.RESULT_OK] if the reminder has been added.
+ * Shows a dialog allowing to add a reminder. Finishes with `RESULT_OK` when a reminder
+ * was added, and with `RESULT_CANCELED` when it was not — including a due time that was
+ * refused and a write that did not commit, both of which leave the dialog open so the
+ * input can be corrected and sent again.
  */
 class AddReminderDialogActivity : ReminderDialogActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,7 +42,7 @@ class AddReminderDialogActivity : ReminderDialogActivity() {
         when (val result = addReminder(this, buildReminderWithTimeTextNagging())) {
             is TransitionOutcome.Updated -> {
                 makeToast(result.reminder)
-                completeActivity()
+                finishAfterChange()
                 Prefs.setAddReminderDialogUsed(this)
             }
             is TransitionOutcome.Refused -> when (result.reason) {

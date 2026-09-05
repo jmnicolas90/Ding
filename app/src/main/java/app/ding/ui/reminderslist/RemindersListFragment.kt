@@ -16,7 +16,6 @@
  */
 package app.ding.ui.reminderslist
 
-import android.app.Activity
 import android.content.*
 import android.os.Build
 import android.os.Bundle
@@ -24,7 +23,6 @@ import android.text.format.DateUtils
 import android.util.SparseArray
 import android.view.*
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.ActionMode
 import androidx.arch.core.util.Function
@@ -115,8 +113,10 @@ class RemindersListFragment : Fragment() {
                             onlySelectedReminder.id
                         )
                     )
-                    // The following is currently not necessary as reminder updates result in a broadcast received by the fragment.
-                    // startEditReminderDialogActivityAndReloadOnOK(onlySelectedReminder.id)
+                    // The list reloads from the reminders-updated broadcast, not from the
+                    // dialog's result: the edit dialog is a singleTask activity with its own
+                    // task affinity, so it always starts in its own task and the system
+                    // answers a result request with RESULT_CANCELED straight away.
                     mode.finish()
                 }
                 R.id.action_copy_text -> {
@@ -237,24 +237,6 @@ class RemindersListFragment : Fragment() {
     override fun onPause() {
         LocalBroadcastManager.getInstance(requireActivity()).unregisterReceiver(broadcastReceiver)
         super.onPause()
-    }
-
-    /*
-     * Start [EditReminderDialogActivity] and reload reminders list when the activity finishes
-     * with [Activity.RESULT_OK].
-     */
-    private fun startEditReminderDialogActivityAndReloadOnOK(reminderId: Int) {
-        val intent = EditReminderDialogActivity.getIntentEditReminder(
-            context,
-            reminderId
-        )
-        val startActivityForResult =
-            registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { activityResult ->
-                if (activityResult.resultCode == Activity.RESULT_OK) {
-                    reloadRemindersListAndUpdateRecyclerView()
-                }
-            }
-        startActivityForResult.launch(intent)
     }
 
     /**
@@ -578,8 +560,8 @@ class RemindersListFragment : Fragment() {
                             reminder.id
                         )
                     )
-                    // The following is currently not necessary as reminder updates result in a broadcast received by the fragment.
-                    // startEditReminderDialogActivityAndReloadOnOK(reminder.id)
+                    // The list reloads from the reminders-updated broadcast; see the
+                    // reschedule action above for why the dialog's result is no use here.
                 } else {
                     if (selection.contains(reminder.id)) {
                         selection.remove(reminder.id)
