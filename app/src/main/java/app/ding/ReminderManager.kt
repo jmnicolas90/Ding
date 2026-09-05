@@ -87,8 +87,8 @@ object ReminderManager {
 
     /**
      * The clock every command is decided against. Read through a lambda rather than
-     * handed to the runner once, so that [useClock] reaches a runner that already
-     * exists as well as the next one.
+     * handed to the runner once, so that [restartWithClock] reaches a runner that
+     * already exists as well as the next one.
      */
     private var clock: () -> Long = System::currentTimeMillis
 
