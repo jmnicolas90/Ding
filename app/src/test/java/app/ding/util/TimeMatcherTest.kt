@@ -25,9 +25,9 @@ class TimeMatcherTest : FunSpec({
 
     context("Different separators") {
         val timeMatcher = TextBasedTimeInput.TimeMatcher(
-            separatorAbsoluteTime = "\\.",
+            separatorAbsoluteTime = ".",
             separatorRelativeTime = ":",
-            prefixRelativeTime = "\\+"
+            prefixRelativeTime = "+"
         )
 
         infix fun String.shouldMatchAs(timeMatch: TimeMatch) = timeMatcher.match(this) shouldBe timeMatch
@@ -178,7 +178,7 @@ class TimeMatcherTest : FunSpec({
         val timeMatcher = TextBasedTimeInput.TimeMatcher(
             separatorAbsoluteTime = ":",
             separatorRelativeTime = ":",
-            prefixRelativeTime = "\\+"
+            prefixRelativeTime = "+"
         )
 
         infix fun String.shouldMatchAs(timeMatch: TimeMatch) = timeMatcher.match(this) shouldBe timeMatch
@@ -295,6 +295,52 @@ class TimeMatcherTest : FunSpec({
         }
          */
 
+    }
+
+
+    // Regression tests for the separators the app itself passes. They are plain
+    // characters, and the matcher has to treat them as such: when "." reached the
+    // regex unescaped it stood for "any character", so a bare run of digits or a
+    // stray letter was read as a clock time and cut out of the message.
+    context("Production separators are literal characters") {
+        val timeMatcher = TextBasedTimeInput.TimeMatcher(
+            separatorAbsoluteTime = ".",
+            separatorRelativeTime = ":",
+            prefixRelativeTime = "+"
+        )
+
+        infix fun String.shouldMatchAs(timeMatch: TimeMatch) = timeMatcher.match(this) shouldBe timeMatch
+        fun String.shouldNotMatch() = timeMatcher.match(this) shouldBe null
+
+        test("a run of digits is not an absolute time") {
+            "12345 call".shouldNotMatch()
+        }
+
+        test("a letter is not the absolute separator") {
+            "12a30 call".shouldNotMatch()
+        }
+
+        test("a space is not the absolute separator") {
+            "12 30 call".shouldNotMatch()
+        }
+
+        // The four documented forms, each followed by a message, so the negatives
+        // above are read against what the same matcher is meant to accept.
+        test("a dot is the absolute separator") {
+            "12.30 call" shouldMatchAs TimeMatch(4, false, 12, 30)
+        }
+
+        test("a colon with hours is a delay from now") {
+            "12:30 call" shouldMatchAs TimeMatch(4, true, 12, 30)
+        }
+
+        test("a plus with minutes is a delay from now") {
+            "+90 call" shouldMatchAs TimeMatch(2, true, 0, 90)
+        }
+
+        test("a leading colon with minutes is a delay from now") {
+            ":90 call" shouldMatchAs TimeMatch(2, true, 0, 90)
+        }
     }
 
 })

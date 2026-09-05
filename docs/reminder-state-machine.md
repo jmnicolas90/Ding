@@ -28,13 +28,13 @@ A reminder is in exactly one of three states.
 | `DONE` | Finished. Resting state, can be re-armed by Reschedule. | Empty. | None. |
 
 "Overdue" is not a state. A `SCHEDULED` reminder whose due time has passed is
-one that Reconcile delivers on sight. Swipe-away and explicit done are the
-same transition.
+one that Reconcile delivers on sight. Swiping the notification away and marking
+a reminder done in the list are the same transition.
 
 Each reminder owns one **alarm slot**: the `AlarmManager` pending intent
 whose request code is the reminder id. Deliver and Nag both live in that
-slot, so setting one replaces the other. Mark done from a notification
-uses request code id + 1 and is not an alarm.
+slot, so setting one replaces the other. The mark-done broadcast that a
+swiped-away notification sends uses request code id + 1 and is not an alarm.
 
 ## Commands
 
@@ -46,7 +46,7 @@ reminder id, except Add, which creates one.
 | `Add` | text, due time, nag interval | Add dialog |
 | `Deliver` | expected due time | Alarm receiver |
 | `Nag` | expected due time | Alarm receiver |
-| `MarkDone` | – | Notification swipe or action, list multi-select |
+| `MarkDone` | – | Notification swipe, list multi-select |
 | `Reschedule` | new due time, text, nag interval | Edit dialog |
 | `Edit` | text, nag interval | Edit dialog |
 | `Delete` | – | List |

@@ -170,7 +170,7 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
         timeMatcher = TimeMatcher(
             separatorRelativeTime = ":",
             separatorAbsoluteTime = ".",
-            prefixRelativeTime = "\\+"
+            prefixRelativeTime = "+"
         ) // TODO initialize with user-chosen symbols
         if (Prefs.getBooleanPref(
                 R.string.prefkey_text_based_time_enabled,
