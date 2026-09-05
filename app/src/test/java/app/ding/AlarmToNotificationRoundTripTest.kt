@@ -32,6 +32,7 @@ import app.ding.state.TransitionOutcome
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -79,7 +80,7 @@ class AlarmToNotificationRoundTripTest {
         context = RuntimeEnvironment.getApplication()
         // The runner is process-wide and so is its clock, so the test both holds time
         // still and makes the next command build a runner over this test's own store.
-        ReminderManager.useClock { now }
+        ReminderManager.restartWithClock { now }
         // From Android 13 on nothing is posted without it. The denied case is its own
         // ticket; here the permission is granted so that the round trip is about the
         // wiring and not about the permission.
@@ -91,7 +92,7 @@ class AlarmToNotificationRoundTripTest {
 
     @After
     fun tearDown() {
-        ReminderManager.useClock(System::currentTimeMillis)
+        ReminderManager.restartWithClock(System::currentTimeMillis)
     }
 
     @Test
@@ -181,6 +182,10 @@ class AlarmToNotificationRoundTripTest {
             context,
             Reminder.Builder(date = Date(dueTime), text = "Feed the cat")
         )
+        // Named rather than cast blind: an Add whose alarm could not be set answers
+        // with EffectsFailed around the same outcome, and that is the failure the rest
+        // of the test exists to catch — it may not arrive as a ClassCastException.
+        assertTrue("the reminder was stored and its alarm set, not $result", result is TransitionOutcome.Updated)
         return (result as TransitionOutcome.Updated).reminder
     }
 

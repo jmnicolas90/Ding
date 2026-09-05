@@ -103,18 +103,19 @@ object ReminderManager {
     }
 
     /**
-     * Decide commands against [clock] from now on, and forget the runner this process
-     * was using so that the next command builds one against the context it is given.
+     * Throw away the runner this process was using and decide commands against [clock]
+     * from now on, so that the next command builds a runner over the context it is
+     * given and reads the time from there.
      *
-     * For tests, which need to hold time still and to start from a store of their own:
-     * the runner and the clock both live as long as the process, and a test that
-     * inherited either from the test before it would be reading another test's
-     * reminders or the real wall clock. Nothing in the app calls this, and the default
-     * is the system clock, so it changes no behaviour on a device.
+     * Both halves are for tests, which need to hold time still and to start from a
+     * store of their own: the runner and the clock both live as long as the process,
+     * and a test that inherited either from the test before it would be reading another
+     * test's reminders or the real wall clock. Nothing in the app calls this, and the
+     * default is the system clock, so it changes no behaviour on a device.
      */
     @VisibleForTesting
     @Synchronized
-    internal fun useClock(clock: () -> Long) {
+    internal fun restartWithClock(clock: () -> Long) {
         this.clock = clock
         runner = null
     }

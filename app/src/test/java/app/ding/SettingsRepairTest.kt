@@ -60,23 +60,47 @@ class SettingsRepairTest {
 
     @Test
     fun `a delivery notification's switch of another type reads as its default`() {
-        assertRepairedToFalse(R.string.prefkey_display_original_due_time_normal) {
-            Prefs.isDisplayOriginalDueTimeNormal(it)
-        }
+        assertRepaired(
+            R.string.prefkey_display_original_due_time_normal,
+            reads = false,
+            stores = false
+        ) { Prefs.isDisplayOriginalDueTimeNormal(it) }
     }
 
     @Test
     fun `a nag notification's switch of another type reads as its default`() {
-        assertRepairedToFalse(R.string.prefkey_display_original_due_time_nag) {
-            Prefs.isDisplayOriginalDueTimeNag(it)
-        }
+        assertRepaired(
+            R.string.prefkey_display_original_due_time_nag,
+            reads = false,
+            stores = false
+        ) { Prefs.isDisplayOriginalDueTimeNag(it) }
     }
 
     @Test
     fun `a re-shown notification's switch of another type reads as its default`() {
-        assertRepairedToFalse(R.string.prefkey_display_original_due_time_recreate) {
-            Prefs.isDisplayOriginalDueTimeRecreate(it)
-        }
+        assertRepaired(
+            R.string.prefkey_display_original_due_time_recreate,
+            reads = false,
+            stores = false
+        ) { Prefs.isDisplayOriginalDueTimeRecreate(it) }
+    }
+
+    @Test
+    fun `a nag interval of another type reads as its default`() {
+        assertRepaired(
+            R.string.prefkey_nagging_repeat_interval,
+            reads = Prefs.Defaults.NAGGING_REPEAT_INTERVAL,
+            stores = Prefs.Defaults.NAGGING_REPEAT_INTERVAL.toString()
+        ) { Prefs.getNaggingRepeatInterval(it) }
+    }
+
+    @Test
+    fun `a time display size of another type reads as its default`() {
+        assertRepaired(
+            R.string.prefkey_reminder_dialog_timepicker_text_size,
+            reads = Prefs.Defaults.REMINDER_DIALOG_TIMEPICKER_TEXTSIZE,
+            stores = Prefs.Defaults.REMINDER_DIALOG_TIMEPICKER_TEXTSIZE.toString()
+        ) { Prefs.getReminderDialogTimePickerTextSize(it) }
     }
 
     @Test
@@ -103,81 +127,45 @@ class SettingsRepairTest {
         )
     }
 
-    @Test
-    fun `a nag interval of another type reads as its default`() {
-        val key = context.getString(R.string.prefkey_nagging_repeat_interval)
-        val writes = storeSomethingUnusableAt(key)
-
-        assertEquals(
-            Prefs.Defaults.NAGGING_REPEAT_INTERVAL,
-            Prefs.getNaggingRepeatInterval(writes.context)
-        )
-
-        assertRepairedTo(key, Prefs.Defaults.NAGGING_REPEAT_INTERVAL.toString(), writes)
-    }
-
-    @Test
-    fun `a time display size of another type reads as its default`() {
-        val key = context.getString(R.string.prefkey_reminder_dialog_timepicker_text_size)
-        val writes = storeSomethingUnusableAt(key)
-
-        assertEquals(
-            Prefs.Defaults.REMINDER_DIALOG_TIMEPICKER_TEXTSIZE,
-            Prefs.getReminderDialogTimePickerTextSize(writes.context)
-        )
-
-        assertRepairedTo(
-            key,
-            Prefs.Defaults.REMINDER_DIALOG_TIMEPICKER_TEXTSIZE.toString(),
-            writes
-        )
-    }
-
     /**
      * Put a value of a type the read does not expect under [key], read it through
-     * [read], and check what the wrapper promises: the default comes back, and it is
-     * stored under that same key in its place.
+     * [read], and check the three things every one of these reads promises.
+     *
+     * `commit()` rather than `apply()` is one of them, because the answer is the only
+     * way to know the unusable value is really gone: `apply()` writes in the background
+     * and returns nothing, so a durable write that failed would be invisible and the
+     * log would say the repair worked. It is counted rather than looked for on disk —
+     * Robolectric writes an `apply()` synchronously too, so the file cannot tell them
+     * apart.
+     *
+     * @param reads the default the read answers with
+     * @param stores that same default as it is kept: a boolean under a switch, and the
+     *     text a settings input holds under the two that are typed in
      */
-    private fun assertRepairedToFalse(@StringRes key: Int, read: (Context) -> Boolean) {
+    private fun assertRepaired(
+        @StringRes key: Int,
+        reads: Any,
+        stores: Any,
+        read: (Context) -> Any
+    ) {
         val keyName = context.getString(key)
-        val writes = storeSomethingUnusableAt(keyName)
-
-        assertFalse("the default comes back rather than an exception", read(writes.context))
-
-        assertRepairedTo(keyName, false, writes)
-    }
-
-    /**
-     * The repair happened: the default is under the key that was read, as a value of
-     * the type the read expects, and it was written with `commit()`.
-     *
-     * `commit()` rather than `apply()` is part of what these reads promise, because the
-     * answer is the only way to know the unusable value is really gone — `apply()`
-     * writes in the background and returns nothing, so a durable write that failed
-     * would be invisible and the log would say the repair worked.
-     */
-    private fun assertRepairedTo(key: String, expected: Any, writes: RecordedWrites) {
-        assertEquals("the default is stored under the key that was read", expected, settings.all[key])
-        assertEquals("with commit(), whose answer says whether it worked", 1, writes.settings.commits)
-        assertEquals("and never with apply(), which answers nothing", 0, writes.settings.applies)
-    }
-
-    /**
-     * A string where the caller expects something else, which is all it takes: shared
-     * preferences answer a read of the wrong type with [ClassCastException], and a
-     * restored backup or a hand-edited file is enough to get there.
-     *
-     * @return the context to read through, and the settings that remember how they
-     *     were written to. The write above is made straight to the real settings, so
-     *     only the repair itself is counted.
-     */
-    private fun storeSomethingUnusableAt(key: String): RecordedWrites {
-        assertTrue(settings.edit().putString(key, "not what the app expects").commit())
+        // A string where the caller expects something else, which is all it takes:
+        // shared preferences answer a read of the wrong type with ClassCastException,
+        // and a restored backup or a hand-edited file is enough to get there. Written
+        // straight to the real settings, so that only the repair itself is counted.
+        assertTrue(settings.edit().putString(keyName, "not what the app expects").commit())
         val recording = RecordingSettings(settings)
-        return RecordedWrites(SettingsContext(context, recording), recording)
-    }
 
-    private class RecordedWrites(val context: Context, val settings: RecordingSettings)
+        assertEquals(
+            "the default comes back rather than an exception",
+            reads,
+            read(SettingsContext(context, recording))
+        )
+
+        assertEquals("the default is stored under the key that was read", stores, settings.all[keyName])
+        assertEquals("with commit(), whose answer says whether it worked", 1, recording.commits)
+        assertEquals("and never with apply(), which answers nothing", 0, recording.applies)
+    }
 
     /**
      * A context whose settings are [settings]. Every name gets the same ones, which is
