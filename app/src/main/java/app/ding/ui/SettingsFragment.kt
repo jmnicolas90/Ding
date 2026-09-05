@@ -35,6 +35,7 @@ import app.ding.BootReceiver
 import app.ding.Prefs
 import app.ding.R
 import app.ding.ReminderManager
+import app.ding.data.Reminder
 import app.ding.ui.util.UIUtils
 import app.ding.util.AlarmManagerUtil
 import app.ding.util.DateTimeUtil
@@ -59,18 +60,25 @@ class SettingsFragment : PreferenceFragmentCompat(), OnSharedPreferenceChangeLis
             summaryProvider = SummaryProvider { _: Preference? ->
                 DateTimeUtil.formatMinutes(Prefs.getNaggingRepeatInterval(context).toLong(), context)
             }
-            // Validation
+            // Validation: the same bound the model enforces, so a value saved here can
+            // never be one a reminder would refuse.
             onPreferenceChangeListener =
                 Preference.OnPreferenceChangeListener listener@{ _: Preference?, newValue: Any ->
-                    try {
-                        val i = newValue.toString().toInt()
-                        if (i > 0) {
-                            return@listener true
-                        }
-                    } catch (ex: NumberFormatException) {
-                        // Incorrect format, handled below
+                    val minutes = newValue.toString().toIntOrNull()
+                    if (minutes != null &&
+                        minutes in Reminder.MIN_NAGGING_REPEAT_INTERVAL..Reminder.MAX_NAGGING_REPEAT_INTERVAL
+                    ) {
+                        return@listener true
                     }
-                    Toast.makeText(context, R.string.preference_nagging_repeat_interval_format_error, Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        getString(
+                            R.string.preference_nagging_repeat_interval_format_error,
+                            Reminder.MIN_NAGGING_REPEAT_INTERVAL,
+                            Reminder.MAX_NAGGING_REPEAT_INTERVAL
+                        ),
+                        Toast.LENGTH_LONG
+                    ).show()
                     false
                 }
         }

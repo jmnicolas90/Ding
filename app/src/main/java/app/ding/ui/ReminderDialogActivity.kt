@@ -549,8 +549,9 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
         val inflater = layoutInflater
         val dialogView = inflater.inflate(R.layout.dialog_number_picker, null)
         val naggingRepeatIntervalNumberPicker = dialogView.findViewById<NumberPicker>(R.id.numberPicker)
-        naggingRepeatIntervalNumberPicker.minValue = 1
-        naggingRepeatIntervalNumberPicker.maxValue = Int.MAX_VALUE
+        // The picker cannot offer a value the model would refuse.
+        naggingRepeatIntervalNumberPicker.minValue = Reminder.MIN_NAGGING_REPEAT_INTERVAL
+        naggingRepeatIntervalNumberPicker.maxValue = Reminder.MAX_NAGGING_REPEAT_INTERVAL
         naggingRepeatIntervalNumberPicker.wrapSelectorWheel = false
         naggingRepeatIntervalNumberPicker.value = naggingRepeatInterval
         AlertDialog.Builder(this, R.style.dialog_narrow)

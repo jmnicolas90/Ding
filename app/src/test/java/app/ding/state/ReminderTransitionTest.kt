@@ -376,6 +376,20 @@ class ReminderTransitionTest : FunSpec({
 
         results.getValue(done) shouldBe TransitionResult(TransitionOutcome.Unchanged)
     }
+
+    test("the largest nag interval a reminder may hold computes its next nag a day ahead") {
+        // The remainder in `nextNagTime` divides by the interval, so an interval that
+        // came out zero or negative from overflowing Int arithmetic used to throw here
+        // or set an alarm in the past. 1440 minutes is the largest the model accepts.
+        val dueTime = NOW - 30 * MINUTE
+        val stored = reminder(
+            dueTime = dueTime,
+            status = Status.NOTIFIED,
+            naggingRepeatInterval = Reminder.MAX_NAGGING_REPEAT_INTERVAL
+        )
+
+        nextNagTime(stored, NOW) shouldBe dueTime + 24 * HOUR
+    }
 })
 
 /** A fixed clock: 2026-09-05T12:00:00Z. */

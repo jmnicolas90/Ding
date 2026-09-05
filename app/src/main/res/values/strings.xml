@@ -87,7 +87,7 @@
     <string name="preference_category_notifications">Notifications</string>
     <string name="preference_category_ui">User interface</string>
     <string name="preference_nagging_repeat_interval">Default repeat interval for nagging reminders</string>
-    <string name="preference_nagging_repeat_interval_format_error">The repeat interval must be a positive number of minutes</string>
+    <string name="preference_nagging_repeat_interval_format_error">The repeat interval must be a whole number of minutes between %1$d and %2$d (24 hours)</string>
     <string name="preference_notification_channel_settings">Change notification settings</string>
     <string name="preference_notification_time_display">Displayed time in notifications</string>
     <string name="preference_category_notifications_display">Display original due time in notification (instead of time when notification is shown)</string>

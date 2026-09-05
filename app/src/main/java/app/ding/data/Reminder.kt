@@ -39,7 +39,8 @@ constructor(
 
     /**
      * The interval in minutes with which this reminder should be repeated until dismissed.
-     * This field is optional. A value <= 0 (or omitting in JSON) means that nagging is disabled, which is the default.
+     * This field is optional. 0 (or omitting it in JSON) means that nagging is disabled,
+     * which is the default; any other value must be in 1..[MAX_NAGGING_REPEAT_INTERVAL].
      * @since 0.9.9
      */
     val naggingRepeatInterval: Int = 0,
@@ -74,6 +75,9 @@ constructor(
 
     init {
         require(id in 0..MAX_REMINDER_ID && id % 2 == 0) { "Id must be even, >= 0 and <= $MAX_REMINDER_ID." }
+        require(naggingRepeatInterval in 0..MAX_NAGGING_REPEAT_INTERVAL) {
+            "Nag interval must be 0 (no nagging) or 1..$MAX_NAGGING_REPEAT_INTERVAL minutes."
+        }
     }
 
     /**
@@ -93,10 +97,31 @@ constructor(
     val isNagging: Boolean
         get() = naggingRepeatInterval > 0
     val naggingRepeatIntervalInMillis: Long
-        get() = (60 * 1000 * naggingRepeatInterval).toLong()
+        get() = nagIntervalInMillis(naggingRepeatInterval)
 
     companion object {
         const val MAX_REMINDER_ID = 1000000
+
+        /**
+         * The largest nag interval a reminder may have, in minutes: 24 hours. A nag
+         * that repeats less often than once a day is not a nag, it is a second
+         * reminder. The bound is enforced here, in the settings preference for the
+         * default interval, and in the number picker of the reminder dialog.
+         */
+        const val MAX_NAGGING_REPEAT_INTERVAL = 1440
+
+        /** The smallest nag interval a reminder may have, in minutes. */
+        const val MIN_NAGGING_REPEAT_INTERVAL = 1
+
+        /**
+         * [minutes] as milliseconds. The multiplication is in [Long] because
+         * `60 * 1000 * minutes` in [Int] overflows from 35,792 minutes upward, and a
+         * negative or zero interval schedules a nag in the past or divides by zero.
+         * The bound above keeps a reminder well inside that, but the conversion does
+         * not depend on it.
+         */
+        @JvmStatic
+        fun nagIntervalInMillis(minutes: Int): Long = 60_000L * minutes
 
         @JvmStatic
         fun builder(date: Date, text: String): Builder = Builder(date = date, text = text)
