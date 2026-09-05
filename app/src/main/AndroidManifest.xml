@@ -112,8 +112,9 @@
 
         <!--
           ~ Android 12 and 12L only: the user revoking SCHEDULE_EXACT_ALARM deletes the
-          ~ app's exact alarms, and this is how Android says so. Not exported, because
-          ~ the system is the only sender of a protected broadcast, as for BootReceiver.
+          ~ app's exact alarms, and this is how Android says the access is back. The
+          ~ revocation itself is never broadcast. Not exported, because the system is the
+          ~ only sender of a protected broadcast, as for BootReceiver.
           -->
         <receiver
             android:name=".ExactAlarmPermissionReceiver"
