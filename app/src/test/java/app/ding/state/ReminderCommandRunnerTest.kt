@@ -656,16 +656,42 @@ class ReminderCommandRunnerTest : FunSpec({
     }
 
     test("the failure is reported with the effect it belongs to") {
-        val store = FakeStore(StoredReminders(listOf(scheduled(NOW - 60_000)), nextId = 4))
+        val dueTime = NOW - 60_000
+        val nagging = scheduled(dueTime).copy(naggingRepeatInterval = 5)
+        val store = FakeStore(StoredReminders(listOf(nagging), nextId = 4))
+        // Every effect of the delivery fails, so each one has to be reported, each
+        // paired with the failure that stopped it.
         val executor = ExecutorThatFails { true }
         val failures = RecordedFailures()
         val runner = ReminderCommandRunner(store, executor, failures) { NOW }
 
-        runner.run(ReminderCommand.Deliver(2, NOW - 60_000))
+        runner.run(ReminderCommand.Deliver(2, dueTime))
 
         executor.ran shouldBe emptyList()
-        failures.failures shouldHaveSize 1
-        failures.failures.single().message shouldBe "the effect could not be carried out"
+        failures.effects shouldBe listOf(
+            ReminderEffect.ShowNotification(
+                nagging.copy(status = Status.NOTIFIED),
+                NotificationKind.DELIVER
+            ),
+            ReminderEffect.SetAlarm(2, dueTime + 300_000, AlarmKind.NAG, dueTime)
+        )
+        failures.failures.map { it.message } shouldBe
+            List(2) { "the effect could not be carried out" }
+    }
+
+    test("an effect names itself by what it does and to which reminder, never by its text") {
+        // What the app writes into the log when an effect fails. The reminder's own
+        // text is the user's words and stays out of it; the id is what follows one
+        // reminder through the log.
+        val reminder = scheduled(NOW).copy(text = "Ring the doctor about the results")
+
+        ReminderEffect.ShowNotification(reminder, NotificationKind.NAG).describe() shouldBe
+            "ShowNotification(reminder 2, NAG)"
+        ReminderEffect.SetAlarm(2, NOW, AlarmKind.DELIVER, NOW).describe() shouldBe
+            "SetAlarm(reminder 2, DELIVER, at $NOW)"
+        ReminderEffect.CancelAlarm(2).describe() shouldBe "CancelAlarm(reminder 2)"
+        ReminderEffect.CancelNotification(2).describe() shouldBe
+            "CancelNotification(reminder 2)"
     }
 
 })

@@ -42,6 +42,7 @@ import app.ding.state.ReminderCommandRunner
 import app.ding.state.ReminderEffect
 import app.ding.state.ReminderEffectExecutor
 import app.ding.state.TransitionOutcome
+import app.ding.state.describe
 import app.ding.state.notificationAlerts
 import app.ding.state.notificationAlertsOnlyOnce
 import app.ding.ui.EditReminderDialogActivity
@@ -107,23 +108,10 @@ object ReminderManager {
     private fun logEffectFailure(effect: ReminderEffect, failure: Exception) {
         Log.e(
             "Effects",
-            "${describe(effect)} could not be carried out; the effects after it were " +
+            "${effect.describe()} could not be carried out; the effects after it were " +
                 "still run, and the next reconciliation asks for this one again",
             failure
         )
-    }
-
-    /** An effect named by what it does and to which reminder, without the text. */
-    private fun describe(effect: ReminderEffect): String = when (effect) {
-        is ReminderEffect.SetAlarm ->
-            "SetAlarm(reminder ${effect.reminderId}, ${effect.kind}, at ${effect.at})"
-
-        is ReminderEffect.CancelAlarm -> "CancelAlarm(reminder ${effect.reminderId})"
-        is ReminderEffect.ShowNotification ->
-            "ShowNotification(reminder ${effect.reminder.id}, ${effect.kind})"
-
-        is ReminderEffect.CancelNotification ->
-            "CancelNotification(reminder ${effect.reminderId})"
     }
 
     /**

@@ -227,8 +227,10 @@ mutation on `ReminderManager`:
    result. A failed commit releases the lock and returns a typed
    persistence failure. No broadcast, no effects.
 6. On success, release the lock, broadcast the change, then execute the
-   effects in order, each on its own: one that throws is logged at error
-   level and the ones after it still run (ticket 22).
+   effects in order, each on its own: one that throws is reported to the
+   runner's failure reporter — which on Android logs it at error level, with
+   the reminder's id and not its text — and the ones after it still run
+   (ticket 22).
 7. Return the outcome to the caller.
 
 Persist first, then effects. A Deliver whose write succeeds but whose

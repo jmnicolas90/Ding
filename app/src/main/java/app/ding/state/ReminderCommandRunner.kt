@@ -135,14 +135,27 @@ interface ReminderEffectExecutor {
 }
 
 /**
+ * The last resort for an effect that could not be carried out: whoever built the runner
+ * said nothing about how to report one.
+ *
+ * It prints rather than doing nothing, because an alarm that was not set or a
+ * notification that was not shown is a reminder the user does not get, and that may not
+ * be invisible to anybody — not in the app, where standard error reaches the log, and
+ * not in a test that was not looking for it. The app passes a reporter of its own.
+ */
+private fun printEffectFailure(effect: ReminderEffect, failure: Exception) {
+    System.err.println("${effect.describe()} could not be carried out: $failure")
+}
+
+/**
  * @param reportEffectFailure told about an effect that could not be carried out, so
- *   that the Android half can log it. The default does nothing, which is only ever
- *   right for a test that is not looking at effect failures: the app passes a logger.
+ *   that the Android half can log it. See [printEffectFailure] for what happens when
+ *   nothing is passed.
  */
 class ReminderCommandRunner(
     private val store: ReminderStore,
     private val effectExecutor: ReminderEffectExecutor,
-    private val reportEffectFailure: (ReminderEffect, Exception) -> Unit = { _, _ -> },
+    private val reportEffectFailure: (ReminderEffect, Exception) -> Unit = ::printEffectFailure,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     private val lock = ReentrantLock()
