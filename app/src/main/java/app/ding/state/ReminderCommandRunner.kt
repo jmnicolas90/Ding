@@ -48,9 +48,11 @@ data class StoreReading(
      */
     val unreadable: UnreadableReason? = null,
     /**
-     * True when the stored id counter could not be used and was recomputed from the
-     * reminders. The recomputed counter is in [stored] and lands on disk with the next
-     * write that commits.
+     * True when the stored id counter was not usable as it stood and the read answered
+     * with another one: moved past the reminders it was behind, rounded up to an even
+     * number, or clamped down to [EXHAUSTED_ID_COUNTER] because it was past the end of
+     * the id space. The counter the read settled on is in [stored] and lands on disk
+     * with the next write that commits.
      */
     val counterRepaired: Boolean = false
 )
@@ -92,12 +94,15 @@ interface ReminderStore {
     /**
      * Move the value [read] reported unreadable to keys of its own and empty the normal
      * ones, in one commit, so that nothing written afterwards can land on top of it.
+     * The id counter is the one thing that is carried over instead of emptied, because
+     * the ids it handed out are still live outside the store as notifications, alarms
+     * and pending intents — see [nextIdAfterQuarantine].
      *
      * Called by the runner alone, under its lock, before anything else it does.
      *
-     * @return the store as it stands afterwards — empty — or null when the commit did
-     *   not go through, in which case nothing was written and the value is still
-     *   unreadable, for the next command to try again.
+     * @return the store as it stands afterwards — no reminders, the counter where it
+     *   was — or null when the commit did not go through, in which case nothing was
+     *   written and the value is still unreadable, for the next command to try again.
      */
     fun setAsideUnreadable(): StoredReminders?
 

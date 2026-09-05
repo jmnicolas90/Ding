@@ -380,6 +380,34 @@ class ReminderTransitionTest : FunSpec({
             TransitionResult(TransitionOutcome.Unchanged, bothCancels(8))
     }
 
+    test("12. an add with no id left to give is refused rather than built") {
+        // The counter holds EXHAUSTED_ID_COUNTER once the largest id there is has been
+        // handed out. Building the reminder anyway threw out of Reminder's own require,
+        // which is a crash in the add dialog; the answer is a refusal the dialog can say
+        // something about, and the counter stays where it is.
+        val result = transition(
+            null,
+            ReminderCommand.Add(EXHAUSTED_ID_COUNTER, NOW + HOUR, "Water the plants", 0),
+            NOW
+        )
+
+        result shouldBe TransitionResult(
+            TransitionOutcome.Refused(RefusalReason.IdSpaceExhausted)
+        )
+    }
+
+    test("13. the largest id there is can still be added") {
+        // The bound itself is allocatable: it is the counter two past it that is not.
+        val result = transition(
+            null,
+            ReminderCommand.Add(Reminder.MAX_REMINDER_ID, NOW + HOUR, "Water the plants", 0),
+            NOW
+        )
+
+        (result.outcome as TransitionOutcome.Updated).reminder.id shouldBe
+            Reminder.MAX_REMINDER_ID
+    }
+
     test("a nag is never earlier than the due time plus one interval") {
         // Setting the clock back puts now before the due time of a reminder that was
         // already delivered. The remainder that counts occurrences from the due time

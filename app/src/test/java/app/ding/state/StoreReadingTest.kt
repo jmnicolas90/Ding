@@ -51,7 +51,7 @@ class StoreReadingTest : FunSpec({
 
         // What Main.onCreate used to do with this value was throw out of onCreate.
         reading.unreadable shouldBe UnreadableReason.WRONG_TYPE
-        reading.stored shouldBe StoredReminders(emptyList(), nextId = 0)
+        reading.stored shouldBe StoredReminders(emptyList(), nextId = 4)
     }
 
     test("a reminder list of the wrong type is an unreadable store, not an exception") {
@@ -62,18 +62,35 @@ class StoreReadingTest : FunSpec({
         )
 
         reading.unreadable shouldBe UnreadableReason.WRONG_TYPE
-        reading.stored shouldBe StoredReminders(emptyList(), nextId = 0)
+        // The reminders could not be read as text at all, so there is nothing to scan
+        // for ids; the counter itself is still readable and is what carries them.
+        reading.stored shouldBe StoredReminders(emptyList(), nextId = 4)
     }
 
-    test("an unreadable store takes its id counter with it") {
-        // The counter allocates ids for reminders nobody can read, so it is reset with
-        // them rather than kept to allocate against a store that is now empty.
+    test("an unreadable store keeps its id counter") {
+        // The reminders are gone but their notifications, alarms and pending intents are
+        // still in the OS, all keyed by the ids the counter handed out. Starting the
+        // counter again from 0 would hand one of those ids to a new reminder, whose
+        // alarm and notification would then be the old one's.
         readStore(
             readFormatVersion = { KNOWN_STORED_REMINDERS_FORMAT_VERSION },
             readRawJson = { "this is not JSON" },
             readNextId = { 40 }
         ) shouldBe StoreReading(
-            StoredReminders(emptyList(), nextId = 0),
+            StoredReminders(emptyList(), nextId = 40),
+            unreadable = UnreadableReason.MALFORMED_JSON
+        )
+    }
+
+    test("an unreadable store whose counter is also unreadable rebuilds it from the raw value") {
+        val raw = """[{"id":2,"date":1788609600000,"text":"x"},{"id":8,"date":1,"text":"y"}"""
+
+        readStore(
+            readFormatVersion = { KNOWN_STORED_REMINDERS_FORMAT_VERSION },
+            readRawJson = { raw },
+            readNextId = { throw ClassCastException("String cannot be cast to Integer") }
+        ) shouldBe StoreReading(
+            StoredReminders(emptyList(), nextId = 10),
             unreadable = UnreadableReason.MALFORMED_JSON
         )
     }
@@ -87,7 +104,7 @@ class StoreReadingTest : FunSpec({
     }
 
     // The id counter: never substituted with 0, because the next Add would take id 0
-    // and replace whatever already holds it.
+    // and replace whatever already holds it. Recovering it only ever moves it up.
 
     test("an id counter of the wrong type is recomputed from the stored reminders") {
         val reminders = listOf(reminder(0), reminder(2))
@@ -105,7 +122,7 @@ class StoreReadingTest : FunSpec({
     test("an id counter that cannot be read gives an id no stored reminder has") {
         val reminders = listOf(reminder(0), reminder(2), reminder(6))
 
-        forEachCorruptCounter { counter ->
+        forEachCounterWithNoNumberToUse { counter ->
             val nextId = nextIdToUse(counter, reminders)
 
             nextId shouldBe 8
@@ -116,8 +133,107 @@ class StoreReadingTest : FunSpec({
     }
 
     test("an id counter that cannot be read starts again from 0 when there are no reminders") {
-        forEachCorruptCounter { counter ->
+        // 0 is the genuine first run, and only a counter with no number in it at all
+        // may land there: there is nothing else to go on.
+        forEachCounterWithNoNumberToUse { counter ->
             nextIdToUse(counter, emptyList()) shouldBe 0
+        }
+    }
+
+    test("an odd counter over a readable but empty list is rounded up, not reset") {
+        // The store is readable and holds no reminders, which is not evidence that no
+        // id was ever handed out: every reminder may have been deleted or marked done
+        // and cleared. Recomputing from the list would give the next Add id 0, whose
+        // notification, alarm and pending intents an older reminder may still hold.
+        nextIdToUse(storedNextId = 41, reminders = emptyList()) shouldBe 42
+
+        readStore(
+            readFormatVersion = { KNOWN_STORED_REMINDERS_FORMAT_VERSION },
+            readRawJson = { "[]" },
+            readNextId = { 41 }
+        ) shouldBe StoreReading(
+            StoredReminders(emptyList(), nextId = 42),
+            counterRepaired = true
+        )
+    }
+
+    test("an odd counter behind the stored reminders is moved past them") {
+        // Both halves are evidence and the larger one wins.
+        nextIdToUse(storedNextId = 41, reminders = listOf(reminder(60))) shouldBe 62
+    }
+
+    // The counter once the last id has been handed out. It holds MAX_REMINDER_ID + 2
+    // then, which is a number the store writes by itself rather than damage: winding it
+    // back would start giving out ids this install has already used.
+
+    test("a counter with no id left to give survives a read") {
+        readStore(
+            readFormatVersion = { KNOWN_STORED_REMINDERS_FORMAT_VERSION },
+            readRawJson = { "[]" },
+            readNextId = { EXHAUSTED_ID_COUNTER }
+        ) shouldBe StoreReading(StoredReminders(emptyList(), nextId = EXHAUSTED_ID_COUNTER))
+    }
+
+    test("a counter with no id left to give survives a quarantine") {
+        val raw = """[{"id":2,"date":1,"text":"x"}"""
+
+        nextIdAfterQuarantine(
+            storedNextId = EXHAUSTED_ID_COUNTER,
+            quarantinedRaw = raw
+        ) shouldBe EXHAUSTED_ID_COUNTER
+    }
+
+    test("a raw value that cannot be scanned leaves a counter with no id left alone") {
+        // Nothing to scan and nothing to fall back on: the counter is the whole record.
+        nextIdAfterQuarantine(
+            storedNextId = EXHAUSTED_ID_COUNTER,
+            quarantinedRaw = null
+        ) shouldBe EXHAUSTED_ID_COUNTER
+    }
+
+    test("the largest id there is, found anywhere in the raw value, leaves none to give") {
+        // Not a reminder's own id: it is nested in a shape that is not a list of
+        // reminders at all. The scan counts it anyway, because it errs upwards — and
+        // upwards from the largest id there is is the counter with nothing left.
+        val raw = """{"backup":[{"id":${Reminder.MAX_REMINDER_ID},"date":1,"text":"x"}]}"""
+
+        nextIdAfterQuarantine(storedNextId = null, quarantinedRaw = raw) shouldBe
+            EXHAUSTED_ID_COUNTER
+    }
+
+    test("a counter above the mark for having none left is clamped to it, not thrown away") {
+        // A number this app could not have written is still evidence that ids were
+        // handed out. Throwing it away leaves an empty list to answer alone, which
+        // answers 0, and the next Add takes id 0 back from whatever notification, alarm
+        // or pending intent still holds it. Clamping fails closed instead: the counter
+        // never goes down, and an Add against it is refused.
+        nextIdToUse(storedNextId = EXHAUSTED_ID_COUNTER + 2, reminders = emptyList()) shouldBe
+            EXHAUSTED_ID_COUNTER
+        nextIdToUse(storedNextId = Int.MAX_VALUE, reminders = emptyList()) shouldBe
+            EXHAUSTED_ID_COUNTER
+    }
+
+    test("a counter above the mark for having none left is clamped on the way in to a read") {
+        listOf(EXHAUSTED_ID_COUNTER + 2, Int.MAX_VALUE).forEach { counter ->
+            val reading = readStore(
+                readFormatVersion = { KNOWN_STORED_REMINDERS_FORMAT_VERSION },
+                readRawJson = { "[]" },
+                readNextId = { counter }
+            )
+
+            reading.stored shouldBe StoredReminders(emptyList(), nextId = EXHAUSTED_ID_COUNTER)
+            // The clamp is a repair like the others, and is logged as one.
+            reading.counterRepaired shouldBe true
+        }
+    }
+
+    test("a counter above the mark for having none left is clamped by a quarantine too") {
+        // The read path and the rebuild have to agree, or the counter drops the moment
+        // an unreadable value is set aside.
+        listOf(EXHAUSTED_ID_COUNTER + 2, Int.MAX_VALUE).forEach { counter ->
+            nextIdAfterQuarantine(counter, """[{"id":2,"date":1,"text":"x"}""") shouldBe
+                EXHAUSTED_ID_COUNTER
+            nextIdAfterQuarantine(counter, null) shouldBe EXHAUSTED_ID_COUNTER
         }
     }
 
@@ -139,6 +255,80 @@ class StoreReadingTest : FunSpec({
         // A gap in the ids is not damage: an id is never reused, and 40 allocates fine.
         reading.stored.nextId shouldBe 40
         reading.counterRepaired shouldBe false
+    }
+
+    // The counter after a value has been set aside. The reminders are gone from the
+    // store but their alarms and notifications are not gone from the OS, so an id that
+    // was handed out once may never be handed out again.
+
+    test("a usable counter is what a quarantine allocates from next") {
+        val raw = """[{"id":0,"date":1,"text":"x"},{"id":2,"date":1,"text":"y"}]"""
+
+        nextIdAfterQuarantine(storedNextId = 4, quarantinedRaw = raw) shouldBe 4
+    }
+
+    test("a counter that cannot be read is rebuilt from the ids in the raw value") {
+        val raw = """[{"id":0,"date":1,"text":"x"},{"id":6,"date":1,"text":"y"}]"""
+
+        nextIdAfterQuarantine(storedNextId = null, quarantinedRaw = raw) shouldBe 8
+    }
+
+    test("a counter behind the ids in the raw value is moved past them") {
+        // The two could drift apart in a store damaged enough not to decode at all.
+        val raw = """[{"id":12,"date":1,"text":"x"}]"""
+
+        nextIdAfterQuarantine(storedNextId = 4, quarantinedRaw = raw) shouldBe 14
+    }
+
+    test("a counter that is not even is rounded up rather than down") {
+        // Rounding down would give back an id the store had already passed.
+        nextIdAfterQuarantine(storedNextId = 41, quarantinedRaw = "[]") shouldBe 42
+    }
+
+    test("a negative counter contributes nothing") {
+        val raw = """[{"id":6,"date":1,"text":"x"}]"""
+
+        nextIdAfterQuarantine(storedNextId = -20, quarantinedRaw = raw) shouldBe 8
+    }
+
+    test("an id the app could never have allocated is not evidence of one") {
+        // Out of range, so no reminder, notification or pending intent ever held it.
+        val raw = """[{"id":${Reminder.MAX_REMINDER_ID + 4},"date":1,"text":"x"}]"""
+
+        nextIdAfterQuarantine(storedNextId = 6, quarantinedRaw = raw) shouldBe 6
+    }
+
+    test("the scan reads an id however the raw value spaces it") {
+        nextIdAfterQuarantine(null, """[{"id" : 10, "date":1}]""") shouldBe 12
+    }
+
+    test("a raw value with no ids in it leaves the counter where it was") {
+        nextIdAfterQuarantine(storedNextId = 8, quarantinedRaw = "this is not JSON") shouldBe 8
+    }
+
+    test("nothing to go on at all starts the counter from 0") {
+        // The one case with no better answer: no counter, and a value that could not
+        // even be read as text.
+        nextIdAfterQuarantine(storedNextId = null, quarantinedRaw = null) shouldBe 0
+    }
+
+    test("the counter a quarantine leaves behind is an id, or the mark for having none") {
+        listOf<Pair<Int?, String?>>(
+            null to null,
+            null to "this is not JSON",
+            3 to """[{"id":5,"date":1}]""",
+            -2 to "[]",
+            40 to """[{"id":6,"date":1}]""",
+            EXHAUSTED_ID_COUNTER to null,
+            EXHAUSTED_ID_COUNTER + 2 to "[]",
+            Int.MAX_VALUE to null,
+            null to """[{"id":${Reminder.MAX_REMINDER_ID},"date":1}]"""
+        ).forEach { (counter, raw) ->
+            val nextId = nextIdAfterQuarantine(counter, raw)
+
+            (nextId % 2) shouldBe 0
+            (nextId in 0..EXHAUSTED_ID_COUNTER) shouldBe true
+        }
     }
 
     // The value set aside: read on the way in to the set-aside and every time the
@@ -212,13 +402,19 @@ class StoreReadingTest : FunSpec({
     }
 })
 
-/** Every counter the store can hold that cannot allocate an id: the same answer for each. */
-private fun forEachCorruptCounter(check: (Int?) -> Unit) {
+/**
+ * Every counter the store can hold that carries no number the app can use: the same
+ * answer for each, and the only counters the reminders themselves have to answer for.
+ *
+ * There are two of them. An odd counter is not one: it is off by one from a number this
+ * app did write, so it is rounded up and used. Nor is a counter above the mark for
+ * having no id left: however far above it is, it says ids were handed out, so it is
+ * clamped down to that mark rather than thrown away.
+ */
+private fun forEachCounterWithNoNumberToUse(check: (Int?) -> Unit) {
     listOf(
         null, // of another type, or nothing at all
-        3, // odd, so it is not an id this app ever allocated
-        -2, // out of range
-        Reminder.MAX_REMINDER_ID + 2 // past the largest id a reminder may have
+        -2 // no id was ever negative
     ).forEach(check)
 }
 

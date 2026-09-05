@@ -76,8 +76,9 @@ Outcomes:
 - `Updated(reminder)` — write this reminder.
 - `Removed` — delete the reminder.
 - `Unchanged` — write nothing. Effects may still run (cleanup, re-show).
-- `Refused(reason)` — write nothing, run nothing. Currently one reason:
-  `PastDue`.
+- `Refused(reason)` — write nothing, run nothing. Two reasons: `PastDue`, and
+  `IdSpaceExhausted` for an Add when the store's id counter has passed the
+  largest id a reminder may hold and there is no id left to give.
 
 Effects, executed by the runner in order after a successful write:
 
@@ -96,8 +97,11 @@ Effects, executed by the runner in order after a successful write:
 time, or the stored state cannot accept the command. A stale command is
 always `Unchanged` with no effects: it is not an error.
 
+The guards of a command are read in the order they appear.
+
 | Command | Stored state | Guard | Outcome | Effects |
 |---|---|---|---|---|
+| Add | absent | no id left to give | Refused(IdSpaceExhausted) | – |
 | Add | absent | due > now | Updated, `SCHEDULED` | SetAlarm(due, Deliver) |
 | Add | absent | due ≤ now | Refused(PastDue) | – |
 | Deliver | `SCHEDULED` | expected == due | Updated, `NOTIFIED` | ShowNotification(Deliver); SetAlarm(nextNag(now), Nag) if nagging |
@@ -214,7 +218,9 @@ mutation on `ReminderManager`:
 2. Set aside the stored value if the store reports it cannot be read, and stop
    with a persistence failure if that write does not commit. Reading never
    writes, so this is the only place the recovery happens, and the first
-   command of a process is the startup Reconcile.
+   command of a process is the startup Reconcile. The id counter is carried
+   over in that same commit rather than emptied with the reminders, and every
+   notification of the app's is cancelled once it commits (ticket 21).
 3. Read the stored reminder (or all of them, for Reconcile).
 4. Call the transition function with the current time.
 5. On `Updated` or `Removed`, write the whole list and check the commit

@@ -328,7 +328,7 @@ class ReminderCommandRunnerTest : FunSpec({
         // flag, and writes nothing at all: a set-aside from a read is a write outside
         // the runner's lock, which is how it lands on top of a command in flight.
         val reading = store.read()
-        reading.stored shouldBe StoredReminders(emptyList(), nextId = 0)
+        reading.stored shouldBe StoredReminders(emptyList(), nextId = 4)
         reading.unreadable shouldBe UnreadableReason.MALFORMED_JSON
         store.quarantined shouldBe null
         store.log shouldBe emptyList()
@@ -406,6 +406,174 @@ class ReminderCommandRunnerTest : FunSpec({
             ReminderEffect.CancelAlarm(2),
             ReminderEffect.CancelNotification(2)
         )
+    }
+
+    // An id is the identity of a reminder, of its notification and of both its pending
+    // intents at once, so an id handed out once may never be handed out again — not even
+    // after the reminders that held it have gone from the store. Their notifications and
+    // alarms are still in the OS, and a new reminder given an old id would inherit them:
+    // the swipe on the old notification would mark the new reminder done.
+
+    test("an add after a quarantine takes an id above every id the old store held") {
+        val old = listOf(
+            Reminder(id = 0, date = Date(NOW - 60_000), text = "Water the plants"),
+            Reminder(id = 2, date = Date(NOW - 60_000), text = "Take the bins out")
+        )
+        // Readable counter, unreadable reminders: the JSON is truncated.
+        val store = QuarantiningFakeStore(
+            Reminder.toJson(old).dropLast(4),
+            nextId = 4
+        )
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.reconcileAll()
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        val added = (outcome as TransitionOutcome.Updated).reminder
+        added.id shouldBe 4
+        old.none { it.id == added.id } shouldBe true
+    }
+
+    test("an add after a quarantine whose counter is also corrupt still takes a fresh id") {
+        val old = listOf(
+            Reminder(id = 0, date = Date(NOW - 60_000), text = "Water the plants"),
+            Reminder(id = 6, date = Date(NOW - 60_000), text = "Take the bins out")
+        )
+        // Neither the reminders nor the counter can be read: the ids in the raw value
+        // are the only record of what was handed out.
+        val store = QuarantiningFakeStore(Reminder.toJson(old).dropLast(4), nextId = null)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.reconcileAll()
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        val added = (outcome as TransitionOutcome.Updated).reminder
+        added.id shouldBe 8
+        old.none { it.id == added.id } shouldBe true
+        store.quarantined?.raw shouldBe Reminder.toJson(old).dropLast(4)
+    }
+
+    test("a second quarantine does not give back the ids the first one moved past") {
+        val store = QuarantiningFakeStore("""[{"id":10,"date":1,"text":"x"}""", nextId = null)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.reconcileAll()
+        // Damaged again after the app has been running on the store the first failure
+        // left it with. The counter is the only thing carrying the old ids now.
+        store.rawJson = "the second damage"
+        runner.reconcileAll()
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        (outcome as TransitionOutcome.Updated).reminder.id shouldBe 12
+    }
+
+    // There are only so many ids: 0 to MAX_REMINDER_ID, two apart. A store that has
+    // handed out the last of them holds EXHAUSTED_ID_COUNTER, and there is nothing left
+    // to give. Add says so; it does not wind the counter back onto an id this install
+    // has already used, and it does not build a reminder Reminder itself refuses.
+
+    test("handing out the last id leaves none to give, and the next add is refused") {
+        val store = FakeStore(StoredReminders(emptyList(), nextId = Reminder.MAX_REMINDER_ID))
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        val added = runner.add(NOW + 60_000, "Water the plants", naggingRepeatInterval = 0)
+        val refused = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        (added as TransitionOutcome.Updated).reminder.id shouldBe Reminder.MAX_REMINDER_ID
+        // The counter the store is left with is the one it will be read back with.
+        store.read().stored.nextId shouldBe EXHAUSTED_ID_COUNTER
+        refused shouldBe TransitionOutcome.Refused(RefusalReason.IdSpaceExhausted)
+        store.writes shouldHaveSize 1
+        store.read().stored.reminders shouldHaveSize 1
+    }
+
+    test("the largest id there is anywhere in a quarantined value refuses the next add") {
+        // The id is not even a reminder's own here: it is nested in a shape that is not
+        // a list of reminders, so the store cannot be read at all. The scan counts it
+        // anyway, because erring upwards only ever skips ids that were never used — and
+        // upwards from the largest id there is leaves nothing to give.
+        val store = QuarantiningFakeStore(
+            """{"backup":[{"id":${Reminder.MAX_REMINDER_ID},"date":1,"text":"x"}]}""",
+            nextId = null
+        )
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.reconcileAll()
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        outcome shouldBe TransitionOutcome.Refused(RefusalReason.IdSpaceExhausted)
+        store.read().stored.nextId shouldBe EXHAUSTED_ID_COUNTER
+        executor.effects shouldBe emptyList()
+    }
+
+    test("a counter above the mark for having none left refuses the next add") {
+        // Only the counter is out of range here; the store itself reads fine and is
+        // empty. Reading a counter this app could not have written as no evidence at
+        // all would leave the empty list to answer alone, and the next add would take
+        // id 0 — an id whose notification, alarm and pending intents an older reminder
+        // of this install may still hold.
+        val store = QuarantiningFakeStore("[]", nextId = Int.MAX_VALUE)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        outcome shouldBe TransitionOutcome.Refused(RefusalReason.IdSpaceExhausted)
+        store.read().stored.nextId shouldBe EXHAUSTED_ID_COUNTER
+        executor.effects shouldBe emptyList()
+    }
+
+    test("a quarantine does not give back the ids a counter above the mark stands for") {
+        val store = QuarantiningFakeStore("the damage", nextId = EXHAUSTED_ID_COUNTER + 2)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.reconcileAll()
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        outcome shouldBe TransitionOutcome.Refused(RefusalReason.IdSpaceExhausted)
+        store.read().stored.nextId shouldBe EXHAUSTED_ID_COUNTER
+        executor.effects shouldBe emptyList()
+    }
+
+    // Two stored reminders sharing an id cannot both be run on: they share one alarm
+    // slot, one notification and one pending-intent request code. Reconcile over a
+    // future SCHEDULED one and a DONE one would set the alarm for the first and cancel
+    // it for the second, leaving the reminder that must fire with an empty slot.
+
+    test("two reminders sharing an id are set aside before any effect runs") {
+        val raw = Reminder.toJson(
+            listOf(
+                Reminder(
+                    id = 2,
+                    date = Date(NOW + 60_000),
+                    text = "Water the plants",
+                    status = Status.SCHEDULED
+                ),
+                Reminder(
+                    id = 2,
+                    date = Date(NOW - 60_000),
+                    text = "Take the bins out",
+                    status = Status.DONE
+                )
+            )
+        )
+        val store = QuarantiningFakeStore(raw)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        val result = runner.reconcileAll()
+
+        // No SetAlarm(2) followed by a CancelAlarm(2): the store never reaches the
+        // transition function at all.
+        result shouldBe ReconcileResult.Reconciled(emptyList())
+        executor.effects shouldBe emptyList()
+        store.quarantined?.raw shouldBe raw
     }
 
     test("the value set aside is the first one when a second store cannot be read") {
@@ -521,14 +689,17 @@ private class QuarantiningFakeStore(
                 quarantinedAt = NOW + setAsides
             )
         )
+        // The counter is the one thing a set-aside does not empty: the ids it handed out
+        // are still live in the OS as notifications, alarms and pending intents.
+        val nextId = nextIdAfterQuarantine(previous.nextId, rawJson)
         // Emptied in the same commit, so the app runs on an empty store rather than an
         // unreadable one and no later write can land on the value set aside.
         val result = writeWithRollback(
             previous = previous,
-            next = Values("[]", KNOWN_STORED_REMINDERS_FORMAT_VERSION, 0, keep),
+            next = Values("[]", KNOWN_STORED_REMINDERS_FORMAT_VERSION, nextId, keep),
             commit = ::commit
         )
-        return if (result.committed) StoredReminders(emptyList(), nextId = 0) else null
+        return if (result.committed) StoredReminders(emptyList(), nextId = nextId) else null
     }
 
     override fun write(stored: StoredReminders): Boolean {

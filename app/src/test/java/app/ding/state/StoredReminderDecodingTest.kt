@@ -126,6 +126,51 @@ class StoredReminderDecodingTest : FunSpec({
             DecodeResult.Unreadable(UnreadableReason.INVALID_REMINDER, raw)
     }
 
+    // Two stored reminders sharing an id are two reminders sharing one alarm slot, one
+    // notification and one pending-intent request code, so the store cannot be run on
+    // at all. It is set aside whole rather than half-repaired.
+
+    test("two stored reminders sharing an id are unreadable") {
+        val raw = Reminder.toJson(
+            listOf(
+                Reminder(id = 2, date = Date(NOW), text = "Water the plants"),
+                Reminder(id = 2, date = Date(NOW + 60_000), text = "Take the bins out")
+            )
+        )
+
+        decodeStoredReminders(KNOWN_STORED_REMINDERS_FORMAT_VERSION, raw) shouldBe
+            DecodeResult.Unreadable(UnreadableReason.DUPLICATE_ID, raw)
+    }
+
+    test("a duplicate id is found wherever it is in the list") {
+        val raw = Reminder.toJson(
+            listOf(
+                Reminder(id = 0, date = Date(NOW), text = "Water the plants"),
+                Reminder(id = 2, date = Date(NOW), text = "Take the bins out"),
+                Reminder(id = 4, date = Date(NOW), text = "Call the plumber"),
+                Reminder(id = 0, date = Date(NOW + 60_000), text = "Water them again")
+            )
+        )
+
+        decodeStoredReminders(KNOWN_STORED_REMINDERS_FORMAT_VERSION, raw) shouldBe
+            DecodeResult.Unreadable(UnreadableReason.DUPLICATE_ID, raw)
+    }
+
+    test("a list whose ids are all different is readable") {
+        val reminders = listOf(
+            Reminder(id = 0, date = Date(NOW), text = "Water the plants"),
+            Reminder(id = 2, date = Date(NOW), text = "Take the bins out", status = Status.DONE),
+            Reminder(id = 1000, date = Date(NOW), text = "Call the plumber")
+        )
+
+        val decoded =
+            decodeStoredReminders(KNOWN_STORED_REMINDERS_FORMAT_VERSION, Reminder.toJson(reminders))
+
+        decoded shouldBe DecodeResult.Readable(reminders)
+        val ids = (decoded as DecodeResult.Readable).reminders.map { it.id }
+        ids.distinct() shouldBe ids
+    }
+
     test("a format version from a newer build is not decoded at all") {
         // Valid JSON for this build, but a build that wrote version 2 may mean
         // something else by it. Reading it as version 1 is how a downgrade eats
