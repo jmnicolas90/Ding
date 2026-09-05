@@ -37,6 +37,7 @@ import androidx.preference.PreferenceManager;
 
 import app.ding.data.NagIntervalSetting;
 import app.ding.data.Reminder;
+import app.ding.data.TimePickerTextSizeSetting;
 
 /**
  * Stores preferences and current status of the app.
@@ -48,7 +49,16 @@ public class Prefs {
     private static final String TAG = "Prefs";
 
     public static class Defaults {
-        public static final int REMINDER_DIALOG_TIMEPICKER_TEXTSIZE = 12;
+        /**
+         * Default size of the reminder dialog's time display, in sp. Also the value in
+         * {@code preferences_ui.xml}.
+         * <p>
+         * Half of the platform's own 60sp time header, which is what the previous default of
+         * 12 came out to on a typical phone back when the number was scaled by the screen
+         * density twice: 12 x 2.625 x 2.625 px on this 420 dpi screen, about 31sp. The number
+         * is now the size itself, so it no longer changes meaning from one screen to the next.
+         */
+        public static final int REMINDER_DIALOG_TIMEPICKER_TEXTSIZE = 30;
         public static final int REMINDER_DIALOG_TIMEPICKER_HEIGHT = 175;
         /**
          * Default nag interval in minutes. Also the value in {@code preferences.xml}.
@@ -266,8 +276,46 @@ public class Prefs {
         return Defaults.NAGGING_REPEAT_INTERVAL;
     }
 
+    /**
+     * The size of the reminder dialog's time display, <b>in sp</b>, always within
+     * {@code MIN_TIME_PICKER_TEXT_SIZE_SP}..{@code MAX_TIME_PICKER_TEXT_SIZE_SP}.
+     * <p>
+     * sp, not dp: it is text, so it scales with the user's system font size. The caller
+     * hands it to {@code setTextSize(TypedValue.COMPLEX_UNIT_SP, ...)} and converts
+     * nothing itself.
+     * <p>
+     * This is read while the reminder dialog is opening and while the settings summary is
+     * drawn, so it may not throw. It used to be {@code Integer.parseInt} of whatever was
+     * stored, which threw {@link NumberFormatException} on a hand-edited preferences file
+     * and {@link ClassCastException} on a value of another type. What counts as usable is
+     * {@code timePickerTextSizeFromStored} in {@link TimePickerTextSizeSetting}, which has
+     * no Android in it and is tested on a plain JVM.
+     * <p>
+     * A value that cannot be used is replaced by the default in storage, once, rather than
+     * only passed over — the same choice as {@link #getNaggingRepeatInterval}, and for the
+     * same reason: passing it over leaves the settings editor showing text the app is not
+     * using.
+     */
     public static int getReminderDialogTimePickerTextSize(Context context) {
-        return Integer.parseInt(getStringPref(R.string.prefkey_reminder_dialog_timepicker_text_size, String.valueOf(Defaults.REMINDER_DIALOG_TIMEPICKER_TEXTSIZE), context));
+        String defaultValue = String.valueOf(Defaults.REMINDER_DIALOG_TIMEPICKER_TEXTSIZE);
+        Integer sizeSp = TimePickerTextSizeSetting.timePickerTextSizeFromStored(
+                () -> getStringPref(R.string.prefkey_reminder_dialog_timepicker_text_size, defaultValue, context));
+        if (sizeSp != null) {
+            return sizeSp;
+        }
+        Log.w(TAG, "Stored time display size is not a whole number of "
+                + TimePickerTextSizeSetting.MIN_TIME_PICKER_TEXT_SIZE_SP + ".."
+                + TimePickerTextSizeSetting.MAX_TIME_PICKER_TEXT_SIZE_SP
+                + " sp, or is of another type; storing the default of "
+                + Defaults.REMINDER_DIALOG_TIMEPICKER_TEXTSIZE + " sp in its place.");
+        // commit(), not apply(): see getNaggingRepeatInterval.
+        boolean stored = edit(context)
+                .putString(context.getString(R.string.prefkey_reminder_dialog_timepicker_text_size), defaultValue)
+                .commit();
+        if (!stored) {
+            Log.w(TAG, "Could not store the default time display size; the unusable value is still there.");
+        }
+        return Defaults.REMINDER_DIALOG_TIMEPICKER_TEXTSIZE;
     }
 
     public static int getReminderDialogTimePickerHeight(Context context) {

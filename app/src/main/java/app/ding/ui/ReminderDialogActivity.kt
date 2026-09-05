@@ -690,30 +690,27 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
                 // Adapting the size of all text in the time header (also the AM/PM labels in 12-hour mode).
                 // Note that the numbers also serve as buttons to switch between hour and minute selection.
 
-                // In default resource: 60dp
-                val timeHeaderTextSize = TypedValue.applyDimension(
-                    TypedValue.COMPLEX_UNIT_DIP,
-                    Prefs.getReminderDialogTimePickerTextSize(this).toFloat(),
-                    resources.displayMetrics
-                )
+                // The preference is in sp, so the time display scales with the user's system
+                // font size, as text should. It is applied with setTextSize(COMPLEX_UNIT_SP, ...),
+                // which does the one conversion sp needs. Assigning TextView.textSize instead
+                // takes the number as sp as well, so converting to pixels first — as this did —
+                // scaled the header by the density twice.
+                // In the platform resource: 60sp.
+                val timeHeaderTextSizeSp = Prefs.getReminderDialogTimePickerTextSize(this).toFloat()
 
-                // In default resource: 16dp (smaller than [timeHeaderTextSize] by a factor of 3.75)
-                val textSizeAmPmLabel = TypedValue.applyDimension(
-                    TypedValue.COMPLEX_UNIT_DIP,
-                    Prefs.getReminderDialogTimePickerTextSize(this).toFloat() / 3.75f,
-                    resources.displayMetrics
-                )
+                // In the platform resource: 16sp, smaller than the header by a factor of 3.75.
+                val amPmLabelTextSizeSp = timeHeaderTextSizeSp / 3.75f
 
                 timeHeader.findViewById<TextView>(Resources.getSystem().getIdentifier("hours", "id", "android"))
-                    ?.let { it.textSize = timeHeaderTextSize }
+                    ?.setTextSize(TypedValue.COMPLEX_UNIT_SP, timeHeaderTextSizeSp)
                 timeHeader.findViewById<TextView>(Resources.getSystem().getIdentifier("minutes", "id", "android"))
-                    ?.let { it.textSize = timeHeaderTextSize }
+                    ?.setTextSize(TypedValue.COMPLEX_UNIT_SP, timeHeaderTextSizeSp)
                 timeHeader.findViewById<TextView>(Resources.getSystem().getIdentifier("separator", "id", "android"))
-                    ?.let { it.textSize = timeHeaderTextSize }
+                    ?.setTextSize(TypedValue.COMPLEX_UNIT_SP, timeHeaderTextSizeSp)
                 timeHeader.findViewById<RadioButton>(Resources.getSystem().getIdentifier("am_label", "id", "android"))
-                    ?.let { it.textSize = textSizeAmPmLabel }
+                    ?.setTextSize(TypedValue.COMPLEX_UNIT_SP, amPmLabelTextSizeSp)
                 timeHeader.findViewById<RadioButton>(Resources.getSystem().getIdentifier("pm_label", "id", "android"))
-                    ?.let { it.textSize = textSizeAmPmLabel }
+                    ?.setTextSize(TypedValue.COMPLEX_UNIT_SP, amPmLabelTextSizeSp)
 
                 // Making the height adapt to the changed font size (however, MATCH_PARENT also seems to work)
                 // Note: This expects a LinearLayout.LayoutParams despite the parameter type
@@ -723,8 +720,14 @@ abstract class ReminderDialogActivity : AppCompatActivity() {
                 )
 
                 val layoutParams = timeHeader.layoutParams as LinearLayout.LayoutParams
-                layoutParams.bottomMargin =
-                    16 // 16dp is used both as bottom of time header layout and top of time picker, but 16 in total is more symmetric
+                // 16dp is used both under the time header and above the picker, and 16 in
+                // total is more symmetric than 32. The field is in raw pixels, so the dp
+                // is converted here — once.
+                layoutParams.bottomMargin = TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP,
+                    16f,
+                    resources.displayMetrics
+                ).toInt()
             }
 
             // Changing the height of the TimePicker

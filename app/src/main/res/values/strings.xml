@@ -104,8 +104,8 @@
     <string name="preference_reminder_dialog_timepicker_show_keyboard_button_descr">Allows to switch between clock and text input for selecting time. Soon it will be possible to type the time directly in the description field.</string>
     <string name="preference_reminder_dialog_timepicker_customize_size">Apply custom sizes set below</string>
     <string name="preference_reminder_dialog_timepicker_customize_size_descr">Change sizes of components in the dialog to fit smaller screens or match personal preferences. Does not apply in landscape mode.</string>
-    <string name="preference_reminder_dialog_timepicker_text_size">Time display size</string>
-    <string name="preference_reminder_dialog_timepicker_text_size_format_error">Choose a positive number</string>
+    <string name="preference_reminder_dialog_timepicker_text_size">Time display size (sp)</string>
+    <string name="preference_reminder_dialog_timepicker_text_size_format_error">The time display size must be a whole number between %1$d and %2$d sp</string>
     <string name="preference_reminder_dialog_timepicker_height">Clock height</string>
     <string name="preference_reminder_dialog_timepicker_height_format_error">Choose a positive number</string>
     <string name="preference_reminder_dialog_timepicker_sizes_recommended">(recommended: %s)</string>
