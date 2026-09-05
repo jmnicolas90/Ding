@@ -227,7 +227,8 @@ mutation on `ReminderManager`:
    result. A failed commit releases the lock and returns a typed
    persistence failure. No broadcast, no effects.
 6. On success, release the lock, broadcast the change, then execute the
-   effects in order.
+   effects in order, each on its own: one that throws is logged at error
+   level and the ones after it still run (ticket 22).
 7. Return the outcome to the caller.
 
 Persist first, then effects. A Deliver whose write succeeds but whose
@@ -235,6 +236,14 @@ notification is blocked by a missing permission leaves a `NOTIFIED`
 reminder with nothing on screen; the next Reconcile re-shows it silently.
 The reverse order can alert twice, or alert for a reminder that was never
 saved.
+
+One effect that fails does not take the rest of the list with it. A sweep's
+effects are every reminder's alarms and notifications in one list, so an
+exception escaping one of them would stop the app from restoring the alarms
+of every reminder behind it — one notification that cannot be shown, and
+nothing else fires either. The outcome the caller gets back says what was
+stored and is unaffected: the effect itself is the only thing lost, and only
+until the next Reconcile asks for it again.
 
 `Reminder` becomes an immutable value. `status` is a `val`. `Reminder.Builder`
 survives only as the payload of `Add`. Storage mutation methods become

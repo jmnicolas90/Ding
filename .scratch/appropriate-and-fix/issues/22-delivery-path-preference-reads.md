@@ -1,7 +1,7 @@
 # 22 — Stop one preference read or one failed effect from swallowing a delivery
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: —
 
 ## Question
@@ -38,7 +38,8 @@ Fix:
   a fake effect executor that throws on one effect and records the rest.
 
 Not in scope: recovering a delivery whose notification could not be shown
-(that is ticket 26's territory once ticket 18 decides how it is tested), and
+(that is ticket 29's territory — the number this finding was given once ticket 18
+had decided how it is tested), and
 the settings screens' own reads, which ticket 15 already made tolerant for the
 time display size.
 

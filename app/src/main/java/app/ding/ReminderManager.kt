@@ -87,8 +87,43 @@ object ReminderManager {
         val applicationContext = context.applicationContext
         return runner ?: ReminderCommandRunner(
             ReminderStorage.storeIn(applicationContext),
-            AlarmsAndNotifications(applicationContext)
+            AlarmsAndNotifications(applicationContext),
+            ::logEffectFailure
         ).also { runner = it }
+    }
+
+    /**
+     * Say that an effect could not be carried out. The runner has already gone on to
+     * the next one — the alarms of every other reminder are in the same list — so this
+     * is the only record that it did not happen.
+     *
+     * Error level: an alarm that was not set or a notification that was not shown is a
+     * reminder the user does not get, which is the worst thing this app can do, even
+     * when the next reconciliation puts it right.
+     *
+     * The reminder's own text is not logged. The id is enough to follow one reminder
+     * through the log, and the text is what the user wrote.
+     */
+    private fun logEffectFailure(effect: ReminderEffect, failure: Exception) {
+        Log.e(
+            "Effects",
+            "${describe(effect)} could not be carried out; the effects after it were " +
+                "still run, and the next reconciliation asks for this one again",
+            failure
+        )
+    }
+
+    /** An effect named by what it does and to which reminder, without the text. */
+    private fun describe(effect: ReminderEffect): String = when (effect) {
+        is ReminderEffect.SetAlarm ->
+            "SetAlarm(reminder ${effect.reminderId}, ${effect.kind}, at ${effect.at})"
+
+        is ReminderEffect.CancelAlarm -> "CancelAlarm(reminder ${effect.reminderId})"
+        is ReminderEffect.ShowNotification ->
+            "ShowNotification(reminder ${effect.reminder.id}, ${effect.kind})"
+
+        is ReminderEffect.CancelNotification ->
+            "CancelNotification(reminder ${effect.reminderId})"
     }
 
     /**
