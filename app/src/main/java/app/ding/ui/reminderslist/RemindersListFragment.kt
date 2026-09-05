@@ -168,8 +168,10 @@ class RemindersListFragment : Fragment() {
          *
          * The two failures are different things and get different messages: a write
          * that did not commit changed nothing, while an effect that did not run leaves
-         * the reminder changed with an alarm or a notification that does not match it.
-         * Saying "nothing was changed" about the second would be untrue.
+         * the store changed with an alarm or a notification that does not match it.
+         * Saying "nothing was changed" about the second would be untrue. Neither
+         * message says what the change was, because mark done and delete come through
+         * here alike and the list itself shows which happened.
          */
         private fun runOnSelection(command: (Int) -> ReminderCommand) {
             val results = selection.map { id ->
@@ -199,7 +201,7 @@ class RemindersListFragment : Fragment() {
             if (anyEffectFailed) {
                 Toast.makeText(
                     context,
-                    getString(R.string.error_msg_reminder_alarm_not_cleared),
+                    getString(R.string.error_msg_reminder_alarm_or_notification_not_cleared),
                     Toast.LENGTH_LONG
                 ).show()
             }

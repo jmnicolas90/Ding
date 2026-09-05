@@ -96,7 +96,14 @@ data class EffectsFailed(
      * empty: a command all of whose effects ran answers with the bare outcome.
      */
     val failedEffects: List<ReminderEffect>
-) : CommandResult
+) : CommandResult {
+    /**
+     * The effects that failed, named for a log line: what each one does and to which
+     * reminder, never a reminder's own text. Here rather than at each caller, which
+     * would be three walks of another object's list to build the same sentence.
+     */
+    fun describeFailures(): String = failedEffects.joinToString { it.describe() }
+}
 
 /** What a reconciliation sweep did. */
 sealed interface ReconcileResult {
@@ -312,16 +319,18 @@ class ReminderCommandRunner(
      *
      * @return the effects that could not be carried out, in the order they were tried.
      */
-    private fun runEffects(effects: List<ReminderEffect>): List<ReminderEffect> =
-        effects.filter { effect ->
+    private fun runEffects(effects: List<ReminderEffect>): List<ReminderEffect> {
+        val failed = mutableListOf<ReminderEffect>()
+        effects.forEach { effect ->
             try {
                 effectExecutor.execute(effect)
-                false
             } catch (e: Exception) {
                 reportEffectFailure(effect, e)
-                true
+                failed.add(effect)
             }
         }
+        return failed
+    }
 
     /**
      * The store to work from, with an unreadable value set aside first.

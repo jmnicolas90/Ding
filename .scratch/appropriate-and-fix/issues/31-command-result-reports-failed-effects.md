@@ -73,10 +73,14 @@ and a list hanging off `TransitionOutcome.Updated` would be the same bug one lev
 a success nobody has to read. As a case, every `when` over `CommandResult` without an
 `else` stopped compiling until it answered, which is what named the four callers.
 
-**The sweep took a field instead**, `Reconciled(outcomes, failedEffects)`. It has one
-caller, that caller has no user in front of it, and it logs and carries on either way,
-so there is no decision for the compiler to force; what the field does force is that no
-sweep result can be built without saying what did not happen.
+**The sweep took a field instead**, `Reconciled(outcomes, failedEffects)`, which is item
+3 of this ticket winning over the letter of item 1. It has one caller, that caller has no
+user in front of it, and it logs and carries on either way, so there is no decision for
+the compiler to force. The "success that quietly holds a list nobody reads" item 1 warns
+about is a caller with a choice to make and no reason to make it; a sweep has neither,
+and every failed effect has already been logged by name at error level by the runner's
+reporter before the result is built. What the field does force is that no sweep result
+can be built without saying what did not happen.
 
 **What the dialogs do.** Both close with `RESULT_OK` — the reminder does exist, and
 pressing Add again would store a second one — and show "Reminder saved, but it may not
@@ -84,4 +88,7 @@ go off as set." in place of the usual "due in ..." confirmation, with the failed
 logged at error level by their text-free `describe()`. The existing "could not save"
 wording is not reused: it says nothing was changed, which here is untrue. The reminders
 list, which the compiler named too, gets its own message for its own case: mark done and
-delete leave an alarm or a notification behind rather than an unscheduled reminder.
+delete leave an alarm or a notification behind rather than an unscheduled reminder. That
+message names neither, only what may be left over — "The reminder's alarm or notification
+may still be there." — because the same toast answers for a reminder that was marked done
+and one that was deleted, and the list itself already shows which happened.

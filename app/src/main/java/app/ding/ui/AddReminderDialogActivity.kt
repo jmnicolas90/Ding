@@ -26,7 +26,6 @@ import app.ding.state.EffectsFailed
 import app.ding.state.PersistenceFailed
 import app.ding.state.RefusalReason
 import app.ding.state.TransitionOutcome
-import app.ding.state.describe
 
 /**
  * Shows a dialog allowing to add a reminder. Finishes with `RESULT_OK` when a reminder
@@ -75,9 +74,8 @@ class AddReminderDialogActivity : ReminderDialogActivity() {
             is EffectsFailed -> {
                 Log.e(
                     "AddReminder",
-                    "The reminder was stored, but " +
-                        result.failedEffects.joinToString { it.describe() } +
-                        " could not be carried out"
+                    "The reminder was stored, but ${result.describeFailures()} " +
+                        "could not be carried out"
                 )
                 Toast.makeText(this, R.string.error_msg_reminder_saved_not_scheduled, Toast.LENGTH_LONG)
                     .show()

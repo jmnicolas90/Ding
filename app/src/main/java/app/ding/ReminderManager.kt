@@ -300,9 +300,7 @@ object ReminderManager {
                 // for the same effects again.
                 is EffectsFailed -> Log.d(
                     "ReminderAction",
-                    "$this: stored, but " +
-                        result.failedEffects.joinToString { it.describe() } +
-                        " could not be carried out"
+                    "$this: stored, but ${result.describeFailures()} could not be carried out"
                 )
                 // This runs in a broadcast receiver, with no user to tell and nothing
                 // safe to retry here. The reminder keeps the state it has on disk, so

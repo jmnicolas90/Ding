@@ -29,7 +29,6 @@ import app.ding.state.EffectsFailed
 import app.ding.state.PersistenceFailed
 import app.ding.state.RefusalReason
 import app.ding.state.TransitionOutcome
-import app.ding.state.describe
 import app.ding.state.editOrReschedule
 import app.ding.state.initialDueTimeForEdit
 import java.util.Calendar
@@ -153,9 +152,8 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
             is EffectsFailed -> if (result.outcome is TransitionOutcome.Updated) {
                 Log.e(
                     "EditReminder",
-                    "The reminder was stored, but " +
-                        result.failedEffects.joinToString { it.describe() } +
-                        " could not be carried out"
+                    "The reminder was stored, but ${result.describeFailures()} " +
+                        "could not be carried out"
                 )
                 Toast.makeText(this, R.string.error_msg_reminder_saved_not_scheduled, Toast.LENGTH_LONG)
                     .show()
