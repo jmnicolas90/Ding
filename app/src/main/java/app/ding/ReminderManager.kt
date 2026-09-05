@@ -126,10 +126,14 @@ object ReminderManager {
      * Add the reminder described by the given builder and schedule it. A new ID is
      * assigned by the store.
      *
-     * @return [TransitionOutcome.Updated] with the stored reminder,
+     * @return [TransitionOutcome.Updated] with the stored reminder, which holds the
+     *     alarm for its due time; [EffectsFailed] around that same outcome when the
+     *     reminder was stored and its alarm could not be set, which leaves it
+     *     `SCHEDULED` with an empty slot until the next Reconcile — saved, but not
+     *     scheduled, and the caller may not report it as set;
      *     [TransitionOutcome.Refused] if the due time is not in the future or the store
-     *     has no id left to give, or [PersistenceFailed] if the store did not commit —
-     *     in either failing case no reminder was created and no alarm was set
+     *     has no id left to give; or [PersistenceFailed] if the store did not commit —
+     *     in those last two no reminder was created and no alarm was set
      */
     @JvmStatic
     fun addReminder(context: Context, reminderBuilder: Reminder.Builder): CommandResult =
