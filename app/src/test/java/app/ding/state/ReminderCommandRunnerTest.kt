@@ -385,6 +385,29 @@ class ReminderCommandRunnerTest : FunSpec({
         store.read().stored.reminders shouldBe stored + added
     }
 
+    test("a mark done whose cancels never ran is repaired by the next reconciliation") {
+        // Persist first, then effects: between the write and the cancels the process
+        // can die, or a cancel can fail. What is left is a reminder that is done on
+        // disk with its nag alarm still in the slot and its notification still on
+        // screen. The next start has to clean that up, because nothing else will.
+        val dueTime = NOW - 60_000
+        val notified = scheduled(dueTime).copy(naggingRepeatInterval = 5, status = Status.NOTIFIED)
+        val store = FakeStore(StoredReminders(listOf(notified), nextId = 4))
+
+        ReminderCommandRunner(store, EffectsThatNeverRan()) { NOW }
+            .run(ReminderCommand.MarkDone(2))
+        store.read().stored.reminders.single().status shouldBe Status.DONE
+
+        // The next process start, over the same store.
+        val executor = RecordingExecutor()
+        ReminderCommandRunner(store, executor) { NOW }.reconcileAll()
+
+        executor.effects shouldBe listOf(
+            ReminderEffect.CancelAlarm(2),
+            ReminderEffect.CancelNotification(2)
+        )
+    }
+
     test("the value set aside is the first one when a second store cannot be read") {
         val first = "the first damage"
         val store = QuarantiningFakeStore(first)
@@ -543,6 +566,11 @@ private class QuarantiningFakeStore(
         quarantined = values.quarantined
         return setAsideSucceeds
     }
+}
+
+/** An executor that does nothing: the effects of a command that the process never ran. */
+private class EffectsThatNeverRan : ReminderEffectExecutor {
+    override fun execute(effect: ReminderEffect) = Unit
 }
 
 private class RecordingExecutor : ReminderEffectExecutor {
