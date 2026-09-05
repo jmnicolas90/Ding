@@ -49,6 +49,19 @@ Every change, nothing more:
    Robolectric JUnit 4 classes together, what each is for, and that the glue
    in `ReminderManager.kt` is tested under Robolectric.
 
+5. **The three display preference reads**, while the harness is here. Ticket 22
+   made `isDisplayOriginalDueTimeNormal`, `isDisplayOriginalDueTimeNag` and
+   `isDisplayOriginalDueTimeRecreate` tolerate a value of another type, and only
+   the pure `booleanFromStored` could be tested on a plain JVM — the wrappers in
+   `Prefs.java` are Android and were left covered by inspection, as tickets 14
+   and 15 left theirs. For a wrong-typed value under each key, assert the
+   default comes back, that the repair wrote a boolean under the *right* key,
+   and that it was `commit()` and not `apply()`. Ticket 22 also recorded a
+   deliberate mismatch worth pinning here: the `recreate` switch's
+   `defaultValue` in `preferences_notifications.xml` is `true` where `Prefs`
+   uses `false`. Cover ticket 14's and 15's wrappers the same way if it is
+   cheap; that is a bonus, not the job.
+
 Not in this ticket: the device harness (ticket 28), the permission findings
 (tickets 29 and 30), any refactor of `ReminderManager.kt` beyond the clock
 seam.
