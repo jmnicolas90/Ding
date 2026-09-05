@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 02
+Blocked by: 02, 28
 
 ## Question
 
