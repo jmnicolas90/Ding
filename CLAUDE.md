@@ -128,7 +128,7 @@ versions render the same markdown differently — and it is not installed by
 default. The script checks the version and tells you how to install that
 exact one user-locally when it is missing or wrong.
 
-## The device pair
+### The device pair
 
 The gate above runs entirely in a JVM, so the one thing this app exists to do —
 fire — is the one thing it cannot see. A second pair covers that, and it is a
@@ -142,42 +142,44 @@ same Gradle task, so neither can quietly stop being true.
 
 The drift rule of the gate applies here unchanged: if the script and the
 workflow ever run different work, one of them is lying — fix the drift, don't
-pick a winner. **The one deliberate difference is the renderer, not the task.**
+pick a winner. **The Gradle task is the same; what differs is the renderer.**
 The dev desktop segfaults under the SwiftShader renderer AGP defaults to, so the
 script asks for `-gpu host`; the GitHub runner has no host GPU to hand out, so
 the workflow takes the default. That flag is therefore on the command and never
-in `gradle.properties`, which both share.
+in `gradle.properties`, which both share. The script also runs the gate's G0
+preflight first and the workflow does not, for the same reason `ci.yml` skips
+it: the runner image is what installs the SDK there.
 
 `pixel6aosp` is declared under `testOptions.managedDevices` in
-`app/build.gradle`: Pixel 6, API 36, `systemImageSource = "aosp"` — pure AOSP,
-no Google APIs, the same proxy for the GrapheneOS Pixel 6 the manual checks use.
-Gradle creates, boots and tears the emulator down itself, under
+`app/build.gradle`: Pixel 6, API 36, `systemImageSource = "aosp"` — pure
+AOSP, no Google APIs, the same proxy for the GrapheneOS Pixel 6 the manual
+checks use. Gradle creates, boots and tears the emulator down itself, under
 `~/.android/avd/gradle-managed`, so a run never touches the hand-made
-`bench-pixel6-aosp` AVD and never uninstalls anything from an attached device,
-which `connectedDebugAndroidTest` would. `./gradlew :app:cleanManagedDevices`
-deletes it. Known noise, ignore it: every run prints *"pixel6aosp has an
-unspecified `testedAbi`"* although `app/build.gradle` spells it out — AGP's setup
-task never copies that one property onto itself. Nothing in the build file
-silences it. Verified on this machine 2026-09-05: the managed device boots and
-runs the suite in well under a minute, so the hand-launched emulator's habit of
-dying silently under `-gpu swiftshader_indirect` is not inherited. Should that
-change, the fallback is `connectedDebugAndroidTest` against `bench-pixel6-aosp`
-started with the flags in the emulator recipe (`-gpu host -feature -GnssGrpcV1`,
-outside the agent's sandbox) — same test, hand-started device, and the script and
-the workflow both change to it together.
+`bench-pixel6-aosp` AVD and never uninstalls anything from an attached
+device, which `connectedDebugAndroidTest` would.
+`./gradlew :app:cleanManagedDevices` deletes it. Known noise, ignore it: every
+run prints *"pixel6aosp has an unspecified `testedAbi`"* although
+`app/build.gradle` spells it out — AGP's setup task never copies that one
+property onto itself. Nothing in the build file silences it. Verified on
+this machine 2026-09-05: the managed device boots and runs the suite in well
+under a minute, so the hand-launched emulator's habit of dying silently
+under `-gpu swiftshader_indirect` is not inherited. Should that change, the
+fallback is `connectedDebugAndroidTest` against `bench-pixel6-aosp` started
+with the flags in the emulator recipe (`-gpu host -feature -GnssGrpcV1`,
+outside the agent's sandbox) — same test, hand-started device, and the
+script and the workflow both change to it together.
 
 The suite is `app/src/androidTest/`, and today it is one test.
 `AlarmFiresOnDeviceTest` adds a reminder due a few seconds out and then fires
 nothing itself: the platform's own `AlarmManager` wakes the receiver, and the
-notification is read back from `NotificationManager.getActiveNotifications`
-rather than from the shade with UiAutomator, which would add a dependency and
-break on rendering differences. What it cannot cover is a *dead* process being
-woken — a test cannot survive its own process being killed — which needs an adb
-script around this harness and is charted in the map's *Not yet specified*.
+notification is read back from `NotificationManager.getActiveNotifications`,
+not from the shade with UiAutomator. What it cannot cover is a *dead* process
+being woken — a test cannot survive its own process being killed — which is
+charted in the map's *Not yet specified*.
 
 The verdict is the task's exit code, and the explanation is not the scrollback:
-`app/build/reports/androidTests/managedDevice/debug/allDevices/index.html` is the
-report, and
+`app/build/reports/androidTests/managedDevice/debug/allDevices/index.html` is
+the report, and
 `app/build/outputs/androidTest-results/managedDevice/debug/pixel6aosp/` holds a
 per-test logcat capture, which is where a device-side failure actually says what
 happened.
@@ -194,9 +196,10 @@ happened.
   worktrees on ticket branches, one ticket each, merged back into `main`
   with `--no-ff` once the gate is green — never committed directly on
   `main`. Before the merge, `scripts/check-device.sh` too, whatever the
-  ticket touched. Worktrees live under `.claude/worktrees/` (gitignored); delete the
-  worktree and its branch after the merge. Releases are marked by tags, not
-  by a branch. (Upstream's git-flow `develop`/`main` split is retired.)
+  ticket touched. Worktrees live under `.claude/worktrees/` (gitignored);
+  delete the worktree and its branch after the merge. Releases are marked by
+  tags, not by a branch. (Upstream's git-flow `develop`/`main` split is
+  retired.)
 - **Never commit red gates**, and don't leave finished green work
   uncommitted at the end of a turn.
 - **Commit trailer names the model that actually wrote the code**, at its own

@@ -65,6 +65,14 @@ Google-dependency check, and both the debug and release APKs:
 scripts/check.sh
 ```
 
+That runs in a JVM, so it cannot see the app actually fire. The one test that
+can needs an emulator, which Gradle creates and destroys for itself. It runs
+before every merge to `main` rather than on every commit:
+
+```
+scripts/check-device.sh
+```
+
 ## Getting it
 
 Releases are published on

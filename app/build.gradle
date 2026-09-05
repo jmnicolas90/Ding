@@ -195,7 +195,10 @@ dependencies {
     // The device stage. androidx.test is the instrumentation runner named by
     // testInstrumentationRunner above, plus the rules the smoke test uses to grant
     // POST_NOTIFICATIONS; androidTest is JUnit 4, which is what the runner runs.
-    // None of these is a Play Services group, so the Google guard is untouched.
+    // None of these is a Play Services group. Note that the guard below would not
+    // have caught one that was: it walks the app variants' runtime classpaths, and
+    // the androidTest classpath is not one of them. Nothing here ships in the APK,
+    // which is what the constraint is about, but the guard is not the reason.
     androidTestImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test:core:1.7.0'
     androidTestImplementation 'androidx.test:runner:1.7.0'
