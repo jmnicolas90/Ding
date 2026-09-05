@@ -128,6 +128,7 @@
     <string name="toast_permission_not_granted">Permission not granted.</string>
     <string name="toast_run_on_boot_revoked_therefore_disabled">Permission to run on device startup has been revoked, the setting has been disabled.</string>
     <string name="error_msg_reminder_not_found">Error: Reminder not found</string>
+    <string name="error_msg_reminder_not_saved">Could not save the reminder. Nothing was changed.</string>
 
     <string name="tmp_templates_fragment_coming_soon">Coming soon: Save frequent reminders and reschedule them even more quickly!</string>
 </resources>

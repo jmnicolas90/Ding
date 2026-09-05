@@ -108,8 +108,14 @@ fun editOrReschedule(
         ReminderCommand.Reschedule(reminderId, chosenDueTime, text, naggingRepeatInterval)
     }
 
-/** What the store has to do about a command. */
-sealed interface TransitionOutcome {
+/**
+ * What the store has to do about a command.
+ *
+ * An outcome is one half of a [CommandResult]: it says what the transition function
+ * decided. The other half, [PersistenceFailed], belongs to the runner, because only
+ * the runner knows whether the write it asked for actually committed.
+ */
+sealed interface TransitionOutcome : CommandResult {
     /** Write this reminder. */
     data class Updated(val reminder: Reminder) : TransitionOutcome
 

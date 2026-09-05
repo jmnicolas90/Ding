@@ -40,7 +40,9 @@ import app.ding.R
 import app.ding.ReminderManager
 import app.ding.ReminderStorage
 import app.ding.data.Reminder
+import app.ding.state.PersistenceFailed
 import app.ding.state.ReminderCommand
+import app.ding.state.TransitionOutcome
 import app.ding.ui.EditReminderDialogActivity
 import app.ding.ui.reminderslist.RemindersListFragment.Companion.BROADCAST_REMINDERS_UPDATED
 import app.ding.util.DateTimeUtil
@@ -135,9 +137,7 @@ class RemindersListFragment : Fragment() {
                     }
                 }
                 R.id.action_mark_done -> {
-                    selection.forEach { id ->
-                        ReminderManager.run(requireContext(), ReminderCommand.MarkDone(id))
-                    }
+                    runOnSelection { id -> ReminderCommand.MarkDone(id) }
                     mode.finish()
                 }
                 R.id.action_add_template ->
@@ -147,9 +147,7 @@ class RemindersListFragment : Fragment() {
                         Toast.LENGTH_SHORT
                     ).show()
                 R.id.action_delete -> {
-                    selection.forEach { id ->
-                        ReminderManager.run(requireContext(), ReminderCommand.Delete(id))
-                    }
+                    runOnSelection { id -> ReminderCommand.Delete(id) }
                     mode.finish()
                 }
                 R.id.action_select_all -> {
@@ -159,6 +157,31 @@ class RemindersListFragment : Fragment() {
                 else -> throw ImplementationError("Action not implemented.")
             }
             return true
+        }
+
+        /**
+         * Runs one command per selected reminder, and tells the user if any of the
+         * writes did not commit. Every selected reminder is tried, because a store
+         * that refused one write may still take the next; the ones that failed keep
+         * the state they have on disk.
+         */
+        private fun runOnSelection(command: (Int) -> ReminderCommand) {
+            val results = selection.map { id ->
+                ReminderManager.run(requireContext(), command(id))
+            }
+            val anyFailed = results.any { result ->
+                when (result) {
+                    is TransitionOutcome -> false
+                    PersistenceFailed -> true
+                }
+            }
+            if (anyFailed) {
+                Toast.makeText(
+                    context,
+                    getString(R.string.error_msg_reminder_not_saved),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
 
         private val onlySelectedReminder: Reminder

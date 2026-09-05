@@ -25,6 +25,7 @@ import app.ding.R
 import app.ding.ReminderManager
 import app.ding.ReminderStorage.ReminderNotFoundException
 import app.ding.ReminderStorage.getReminder
+import app.ding.state.PersistenceFailed
 import app.ding.state.TransitionOutcome
 import app.ding.state.editOrReschedule
 import app.ding.state.initialDueTimeForEdit
@@ -114,19 +115,26 @@ class EditReminderDialogActivity : ReminderDialogActivity() {
             text = reminderBuilder.text,
             naggingRepeatInterval = reminderBuilder.naggingRepeatInterval
         )
-        when (val outcome = ReminderManager.run(this, command)) {
+        when (val result = ReminderManager.run(this, command)) {
             is TransitionOutcome.Updated -> {
-                makeToast(outcome.reminder)
+                makeToast(result.reminder)
                 completeActivity()
             }
             // A due time that is not in the future is refused: say so and leave the
             // dialog open so the time can be corrected.
             is TransitionOutcome.Refused ->
                 Toast.makeText(this, R.string.add_reminder_toast_invalid_date, Toast.LENGTH_LONG).show()
-            // Nothing was written, which normally means the reminder was removed while
-            // this dialog was open. Separating that from a failed write is ticket 12.
-            else -> {
-                Log.w("EditReminder", "The reminder was not updated: $outcome")
+            // The store did not commit, so the reminder still holds what it held
+            // before. Say so and leave the dialog open with the changes in it, so the
+            // edit is not lost silently and pressing OK again is a real retry.
+            PersistenceFailed -> {
+                Log.e("EditReminder", "The store did not commit; the reminder is unchanged")
+                Toast.makeText(this, R.string.error_msg_reminder_not_saved, Toast.LENGTH_LONG).show()
+            }
+            // Nothing was written and nothing failed, which means the reminder was
+            // removed while this dialog was open.
+            TransitionOutcome.Removed, TransitionOutcome.Unchanged -> {
+                Log.w("EditReminder", "The reminder was not updated: $result")
                 Toast.makeText(this, R.string.error_msg_reminder_not_found, Toast.LENGTH_LONG).show()
                 completeActivity()
             }

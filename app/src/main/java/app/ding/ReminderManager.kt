@@ -33,7 +33,10 @@ import androidx.core.app.NotificationManagerCompat
 import app.ding.data.Reminder
 import app.ding.data.Reminder.Status
 import app.ding.state.AlarmKind
+import app.ding.state.CommandResult
 import app.ding.state.NotificationKind
+import app.ding.state.PersistenceFailed
+import app.ding.state.ReconcileResult
 import app.ding.state.ReminderCommand
 import app.ding.state.ReminderCommandRunner
 import app.ding.state.ReminderEffect
@@ -92,18 +95,20 @@ object ReminderManager {
      * Run a command against the stored reminders. The only public way to change a
      * reminder, apart from [addReminder], which has to allocate an id first.
      */
-    fun run(context: Context, command: ReminderCommand): TransitionOutcome =
+    fun run(context: Context, command: ReminderCommand): CommandResult =
         runner(context).run(command)
 
     /**
      * Add the reminder described by the given builder and schedule it. A new ID is
      * assigned by the store.
      *
-     * @return [TransitionOutcome.Updated] with the stored reminder, or
-     *     [TransitionOutcome.Refused] if the due time is not in the future
+     * @return [TransitionOutcome.Updated] with the stored reminder,
+     *     [TransitionOutcome.Refused] if the due time is not in the future, or
+     *     [PersistenceFailed] if the store did not commit, in which case no reminder
+     *     was created and no alarm was set
      */
     @JvmStatic
-    fun addReminder(context: Context, reminderBuilder: Reminder.Builder): TransitionOutcome =
+    fun addReminder(context: Context, reminderBuilder: Reminder.Builder): CommandResult =
         runner(context).add(
             reminderBuilder.date.time,
             reminderBuilder.text,
@@ -118,7 +123,14 @@ object ReminderManager {
     @JvmStatic
     fun reconcileAllReminders(context: Context) {
         Log.d("Reconcile", "Bringing alarms and notifications back in line with the store")
-        runner(context).reconcileAll()
+        when (runner(context).reconcileAll()) {
+            is ReconcileResult.Reconciled -> Unit
+            // There is no user in front of a startup sweep, so the failure is logged
+            // and left alone. Every reminder keeps the state it has on disk, so the
+            // next Reconcile — the next process start — tries the same work again.
+            PersistenceFailed ->
+                Log.e("Reconcile", "The store did not commit; alarms and notifications are unchanged")
+        }
     }
 
     /**
@@ -256,7 +268,15 @@ object ReminderManager {
          * matches the stored due time, is cleaned up rather than treated as an error.
          */
         fun run(context: Context) {
-            run(context, toCommand())
+            when (val result = run(context, toCommand())) {
+                is TransitionOutcome -> Log.d("ReminderAction", "$this: $result")
+                // This runs in a broadcast receiver, with no user to tell and nothing
+                // safe to retry here. The reminder keeps the state it has on disk, so
+                // the next Reconcile — at the next process start — picks the work up
+                // again, and the alarm that is still in its slot is unchanged too.
+                PersistenceFailed ->
+                    Log.e("ReminderAction", "$this: the store did not commit; nothing was done")
+            }
         }
 
         /**
