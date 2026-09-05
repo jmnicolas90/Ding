@@ -1,7 +1,7 @@
 # 22 — Stop one preference read or one failed effect from swallowing a delivery
 
 Type: task
-Status: open
+Status: resolved
 Blocked by: —
 
 ## Question
@@ -38,10 +38,29 @@ Fix:
   a fake effect executor that throws on one effect and records the rest.
 
 Not in scope: recovering a delivery whose notification could not be shown
-(that is ticket 26's territory once ticket 18 decides how it is tested), and
+(that is ticket 29's territory — the number this finding was given once ticket 18
+had decided how it is tested), and
 the settings screens' own reads, which ticket 15 already made tolerant for the
 time display size.
 
 **Done when** no read on the delivery path can throw on a wrong-typed
 preference, a throwing effect does not stop the effects after it, and the
 tests above pass.
+
+## Findings recorded, not fixed here
+
+The Codex review of this ticket (job `review-mtohwk7v-i9g48x`) returned two
+findings. Neither is a regression, both are gaps this ticket leaves standing,
+and both were sent elsewhere rather than widening it:
+
+- **A failed effect is logged, and the caller is still told the command
+  succeeded** (high). An Add whose `SetAlarm` throws stores a `SCHEDULED`
+  reminder with an empty alarm slot while the dialog reports success. Closing
+  it means putting the failed effects into `CommandResult` and teaching the
+  dialogs to say so, which reopens the result-type contract tickets 10, 12 and
+  24 settled. Charted as ticket 31.
+- **The three `Prefs` accessors have no test, only the pure
+  `booleanFromStored` does** (medium). They are Java over
+  `PreferenceManager.getDefaultSharedPreferences` and cannot be driven on a
+  plain JVM at all — the same gap tickets 14 and 15 have. Added as step 5 of
+  ticket 27, which builds the Robolectric harness that can reach them.

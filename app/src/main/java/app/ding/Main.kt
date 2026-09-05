@@ -18,6 +18,7 @@ package app.ding
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.preference.PreferenceManager
 import app.ding.ReminderManager.createNotificationChannel
 import app.ding.ui.util.UIUtils
@@ -27,7 +28,7 @@ class Main : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        PreferenceManager.setDefaultValues(this, R.xml.preferences, true)
+        seedSettingsDefaults()
         // The stored format version is not read here. It is read by the decoding, which
         // is the one thing that knows what to do with a version it does not understand
         // or with a value of another type; a typed read here would throw out of
@@ -42,6 +43,42 @@ class Main : Application() {
         // This might also be called in situations where it is not necessary, for example after the system or user killed the app process
         // without cancelling notifications and alarms. However, there is no handy way of detecting whether this is the case.
         ReminderManager.reconcileAllReminders(this)
+    }
+
+    /**
+     * Write the defaults the settings XML declares for keys that have no value yet.
+     *
+     * It reads as well as writes, and the read is the preference framework's own:
+     * a key that *is* set is read back with the type its `Preference` expects, so a
+     * value of another type — a restored backup, a hand-edited preferences file —
+     * throws [ClassCastException] from here. That is out of `Application.onCreate`,
+     * before any component of the app has run, so nothing seeds the defaults, the
+     * notification channel is not created, the startup sweep never happens and no
+     * reminder ever fires again: the same damage as the read this ticket fixed in the
+     * notification builder, on a path that costs the user every reminder rather than
+     * one.
+     *
+     * So it is caught, and the app carries on to the two things that matter. Nothing
+     * is repaired here: the exception says which types were involved and not which key
+     * held them, and guessing wrong would throw away a setting the user chose. The
+     * value stays where it is, this runs again at the next start, and the app reads
+     * every preference it needs through a read that tolerates it — the settings screen
+     * that displays the offending key is the one place still left, which is ticket 15's
+     * territory rather than this one's.
+     */
+    private fun seedSettingsDefaults() {
+        try {
+            PreferenceManager.setDefaultValues(this, R.xml.preferences, true)
+        } catch (e: ClassCastException) {
+            Log.e(
+                "Settings",
+                "A stored setting is of another type than the settings screen declares, " +
+                    "so the defaults were not seeded. The app carries on: reminders are " +
+                    "what matter here, and every preference they need is read in a way " +
+                    "that tolerates this.",
+                e
+            )
+        }
     }
 
     companion object {

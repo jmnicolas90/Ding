@@ -122,14 +122,40 @@ interface ReminderStore {
     fun announceChange()
 }
 
-/** Does what the transition function decided: alarms and notifications. */
+/**
+ * Does what the transition function decided: alarms and notifications.
+ *
+ * It is allowed to throw. Every effect is one call into an Android subsystem that can
+ * refuse — a notification channel the user has torn down, an alarm the app may no
+ * longer schedule, a preference of the wrong type — and the runner carries the ones
+ * behind it out anyway. See [ReminderCommandRunner.runEffects].
+ */
 interface ReminderEffectExecutor {
     fun execute(effect: ReminderEffect)
 }
 
+/**
+ * The last resort for an effect that could not be carried out: whoever built the runner
+ * said nothing about how to report one.
+ *
+ * It prints rather than doing nothing, because an alarm that was not set or a
+ * notification that was not shown is a reminder the user does not get, and that may not
+ * be invisible to anybody — not in the app, where standard error reaches the log, and
+ * not in a test that was not looking for it. The app passes a reporter of its own.
+ */
+private fun printEffectFailure(effect: ReminderEffect, failure: Exception) {
+    System.err.println("${effect.describe()} could not be carried out: $failure")
+}
+
+/**
+ * @param reportEffectFailure told about an effect that could not be carried out, so
+ *   that the Android half can log it. See [printEffectFailure] for what happens when
+ *   nothing is passed.
+ */
 class ReminderCommandRunner(
     private val store: ReminderStore,
     private val effectExecutor: ReminderEffectExecutor,
+    private val reportEffectFailure: (ReminderEffect, Exception) -> Unit = ::printEffectFailure,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     private val lock = ReentrantLock()
@@ -184,7 +210,7 @@ class ReminderCommandRunner(
         if (written) {
             store.announceChange()
         }
-        effects.forEach(effectExecutor::execute)
+        runEffects(effects)
         return ReconcileResult.Reconciled(outcomes)
     }
 
@@ -214,8 +240,37 @@ class ReminderCommandRunner(
         if (written) {
             store.announceChange()
         }
-        result.effects.forEach(effectExecutor::execute)
+        runEffects(result.effects)
         return result.outcome
+    }
+
+    /**
+     * Carry out the effects, in order, one failure at a time.
+     *
+     * A sweep's effects are every reminder's alarms and notifications in one list, so
+     * an effect that threw its way out of here used to stop the app from restoring the
+     * alarms of every reminder behind it: one notification that could not be shown, and
+     * nothing else fires either. Each one is therefore carried out on its own, and one
+     * that fails is reported and the next one tried.
+     *
+     * What is lost is only the effect itself, and only until the next reconciliation:
+     * the store was written before any of this ran, so the sweep at the next process
+     * start reads the same reminders and asks for the same alarm and the same
+     * notification again. That is also why the outcome the caller gets back is
+     * unchanged by a failure here — it says what was stored, which is still true.
+     *
+     * [Exception], not [Throwable]: what Android throws when it refuses an alarm or a
+     * notification is a runtime exception, and an [Error] means the process is in no
+     * state to carry on with the next effect anyway.
+     */
+    private fun runEffects(effects: List<ReminderEffect>) {
+        effects.forEach { effect ->
+            try {
+                effectExecutor.execute(effect)
+            } catch (e: Exception) {
+                reportEffectFailure(effect, e)
+            }
+        }
     }
 
     /**

@@ -35,6 +35,7 @@ import androidx.annotation.StringRes;
 import androidx.core.app.ActivityCompat;
 import androidx.preference.PreferenceManager;
 
+import app.ding.data.BooleanSetting;
 import app.ding.data.NagIntervalSetting;
 import app.ding.data.Reminder;
 import app.ding.data.TimePickerTextSizeSetting;
@@ -325,16 +326,74 @@ public class Prefs {
         return Integer.parseInt(getStringPref(R.string.prefkey_reminder_dialog_timepicker_height, String.valueOf(Defaults.REMINDER_DIALOG_TIMEPICKER_HEIGHT), context));
     }
 
+    /**
+     * Whether a delivered reminder's notification shows the time it was due.
+     * <p>
+     * This and the two below are the only preferences the delivery path reads, and they
+     * are read at the worst possible moment: the notification is built after the store
+     * has already committed the reminder as delivered, so a read that threw would
+     * consume the alarm and show nothing, skip the nag alarm queued behind it, and
+     * throw again on every later reconciliation — which is every other reminder's
+     * alarm. They therefore go through {@link #getBooleanPrefOrStoreDefault} rather
+     * than through the raw {@link #getBooleanPref}.
+     */
     public static boolean isDisplayOriginalDueTimeNormal(Context context) {
-        return getBooleanPref(R.string.prefkey_display_original_due_time_normal, false, context);
+        return getBooleanPrefOrStoreDefault(R.string.prefkey_display_original_due_time_normal, false, context);
     }
 
+    /** Whether a nag's notification shows the time the reminder was due. */
     public static boolean isDisplayOriginalDueTimeNag(Context context) {
-        return getBooleanPref(R.string.prefkey_display_original_due_time_nag, false, context);
+        return getBooleanPrefOrStoreDefault(R.string.prefkey_display_original_due_time_nag, false, context);
     }
 
+    /**
+     * Whether a notification shown again after a restart shows the time it was due.
+     * <p>
+     * The default here is {@code false} and the {@code defaultValue} on the switch in
+     * {@code preferences_notifications.xml} is {@code true}. That screen is a
+     * sub-screen, so {@code setDefaultValues} in {@code Main} never seeds it and the
+     * app has always behaved as {@code false} while the switch drew itself as on. The
+     * mismatch is left as it is: which of the two is right is a product question, and
+     * changing either one here would change what a notification looks like for
+     * everyone who has never opened that screen.
+     */
     public static boolean isDisplayOriginalDueTimeRecreate(Context context) {
-        return getBooleanPref(R.string.prefkey_display_original_due_time_recreate, false, context);
+        return getBooleanPrefOrStoreDefault(R.string.prefkey_display_original_due_time_recreate, false, context);
+    }
+
+    /**
+     * A switch from settings preferences that may not throw, whatever is stored under
+     * its key.
+     * <p>
+     * The one thing that can be wrong with a stored boolean is its type: shared
+     * preferences throw {@link ClassCastException} when the value is a string, a number
+     * or a set, which a restored backup or a hand-edited preferences file can make it.
+     * What counts as usable is {@code booleanFromStored} in
+     * {@link BooleanSetting}, which has no Android in it and is tested on a plain JVM.
+     * <p>
+     * A value that cannot be used is replaced by the default in storage, once, rather
+     * than only passed over — the same choice as {@link #getNaggingRepeatInterval}, and
+     * for the same reasons: the settings screen would otherwise go on showing a switch
+     * the app is not reading, and every later read would log the same complaint again.
+     * The default written is the one this class states for that key, and each key has
+     * exactly one caller here, so the repair cannot depend on which read reached it
+     * first — see {@link #isDisplayOriginalDueTimeRecreate} for the one key whose
+     * settings XML declares a different default than this class does.
+     */
+    private static boolean getBooleanPrefOrStoreDefault(@StringRes int key, boolean defValue, Context context) {
+        Boolean stored = BooleanSetting.booleanFromStored(() -> getBooleanPref(key, defValue, context));
+        if (stored != null) {
+            return stored;
+        }
+        String keyName = context.getString(key);
+        Log.w(TAG, "The value stored at " + keyName + " is of another type than a switch; storing the default of "
+                + defValue + " in its place.");
+        // commit(), not apply(): see getNaggingRepeatInterval.
+        boolean written = edit(context).putBoolean(keyName, defValue).commit();
+        if (!written) {
+            Log.w(TAG, "Could not store the default at " + keyName + "; the unusable value is still there.");
+        }
+        return defValue;
     }
 
     public static void resetAllDontShowAgain(Context context) {
@@ -369,6 +428,11 @@ public class Prefs {
 
     /**
      * Get a boolean from default preferences using a key from a string resource.
+     * <p>
+     * The raw read: it throws {@link ClassCastException} when the stored value is of
+     * another type. Anything reached from the delivery path — the effect runner, the
+     * notification builder, the broadcast receiver — uses
+     * {@link #getBooleanPrefOrStoreDefault} instead, which cannot throw.
      *
      * @param key      {@link} the resource id of the key
      * @param defValue the default value to be used if the preference is not set

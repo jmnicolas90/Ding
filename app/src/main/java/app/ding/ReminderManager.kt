@@ -42,6 +42,7 @@ import app.ding.state.ReminderCommandRunner
 import app.ding.state.ReminderEffect
 import app.ding.state.ReminderEffectExecutor
 import app.ding.state.TransitionOutcome
+import app.ding.state.describe
 import app.ding.state.notificationAlerts
 import app.ding.state.notificationAlertsOnlyOnce
 import app.ding.ui.EditReminderDialogActivity
@@ -87,8 +88,30 @@ object ReminderManager {
         val applicationContext = context.applicationContext
         return runner ?: ReminderCommandRunner(
             ReminderStorage.storeIn(applicationContext),
-            AlarmsAndNotifications(applicationContext)
+            AlarmsAndNotifications(applicationContext),
+            ::logEffectFailure
         ).also { runner = it }
+    }
+
+    /**
+     * Say that an effect could not be carried out. The runner has already gone on to
+     * the next one — the alarms of every other reminder are in the same list — so this
+     * is the only record that it did not happen.
+     *
+     * Error level: an alarm that was not set or a notification that was not shown is a
+     * reminder the user does not get, which is the worst thing this app can do, even
+     * when the next reconciliation puts it right.
+     *
+     * The reminder's own text is not logged. The id is enough to follow one reminder
+     * through the log, and the text is what the user wrote.
+     */
+    private fun logEffectFailure(effect: ReminderEffect, failure: Exception) {
+        Log.e(
+            "Effects",
+            "${effect.describe()} could not be carried out; the effects after it were " +
+                "still run, and the next reconciliation asks for this one again",
+            failure
+        )
     }
 
     /**

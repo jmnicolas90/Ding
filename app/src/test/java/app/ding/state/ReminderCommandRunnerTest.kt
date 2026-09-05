@@ -590,6 +590,110 @@ class ReminderCommandRunnerTest : FunSpec({
 
         store.quarantined?.raw shouldBe first
     }
+    // One effect that fails may not take the effects after it down with it. The
+    // notification is the one that fails in practice — a preference of the wrong type,
+    // a channel the user has torn down, a notification manager that refuses the post —
+    // and the alarms of every other reminder are in the same list behind it.
+
+    test("an effect that throws does not stop the effects after it") {
+        val notified = scheduled(NOW - 60_000).copy(
+            naggingRepeatInterval = 5,
+            status = Status.NOTIFIED
+        )
+        val store = FakeStore(StoredReminders(listOf(notified), nextId = 4))
+        // Mark done cancels the alarm first and the notification second; here it is the
+        // cancel of the alarm that fails.
+        val executor = ExecutorThatFails { it is ReminderEffect.CancelAlarm }
+        val failures = RecordedFailures()
+        val runner = ReminderCommandRunner(store, executor, failures) { NOW }
+
+        val result = runner.run(ReminderCommand.MarkDone(2))
+
+        // The store committed, so the outcome is what was stored: the effects are not
+        // what it answers for.
+        result shouldBe TransitionOutcome.Updated(notified.copy(status = Status.DONE))
+        executor.ran shouldBe listOf(ReminderEffect.CancelNotification(2))
+        failures.effects shouldBe listOf(ReminderEffect.CancelAlarm(2))
+    }
+
+    test("a reconciliation whose notification fails still schedules the other reminders") {
+        val dueTime = NOW - 60_000
+        val delivered = scheduled(dueTime)
+        val stored = StoredReminders(
+            listOf(
+                delivered,
+                scheduled(NOW + 60_000).copy(id = 4, text = "Take the bins out"),
+                scheduled(NOW + 120_000).copy(id = 6, text = "Call the plumber")
+            ),
+            nextId = 8
+        )
+        val store = FakeStore(stored)
+        val executor = ExecutorThatFails { it is ReminderEffect.ShowNotification }
+        val failures = RecordedFailures()
+        val runner = ReminderCommandRunner(store, executor, failures) { NOW }
+
+        val result = runner.reconcileAll()
+
+        // The reminder whose notification could not be shown is delivered on disk all
+        // the same, and the two reminders behind it in the sweep still get their alarms.
+        result shouldBe ReconcileResult.Reconciled(
+            listOf(
+                TransitionOutcome.Updated(delivered.copy(status = Status.NOTIFIED)),
+                TransitionOutcome.Unchanged,
+                TransitionOutcome.Unchanged
+            )
+        )
+        executor.ran shouldBe listOf(
+            ReminderEffect.SetAlarm(4, NOW + 60_000, AlarmKind.DELIVER, NOW + 60_000),
+            ReminderEffect.SetAlarm(6, NOW + 120_000, AlarmKind.DELIVER, NOW + 120_000)
+        )
+        failures.effects shouldBe listOf(
+            ReminderEffect.ShowNotification(
+                delivered.copy(status = Status.NOTIFIED),
+                NotificationKind.DELIVER
+            )
+        )
+    }
+
+    test("the failure is reported with the effect it belongs to") {
+        val dueTime = NOW - 60_000
+        val nagging = scheduled(dueTime).copy(naggingRepeatInterval = 5)
+        val store = FakeStore(StoredReminders(listOf(nagging), nextId = 4))
+        // Every effect of the delivery fails, so each one has to be reported, each
+        // paired with the failure that stopped it.
+        val executor = ExecutorThatFails { true }
+        val failures = RecordedFailures()
+        val runner = ReminderCommandRunner(store, executor, failures) { NOW }
+
+        runner.run(ReminderCommand.Deliver(2, dueTime))
+
+        executor.ran shouldBe emptyList()
+        failures.effects shouldBe listOf(
+            ReminderEffect.ShowNotification(
+                nagging.copy(status = Status.NOTIFIED),
+                NotificationKind.DELIVER
+            ),
+            ReminderEffect.SetAlarm(2, dueTime + 300_000, AlarmKind.NAG, dueTime)
+        )
+        failures.failures.map { it.message } shouldBe
+            List(2) { "the effect could not be carried out" }
+    }
+
+    test("an effect names itself by what it does and to which reminder, never by its text") {
+        // What the app writes into the log when an effect fails. The reminder's own
+        // text is the user's words and stays out of it; the id is what follows one
+        // reminder through the log.
+        val reminder = scheduled(NOW).copy(text = "Ring the doctor about the results")
+
+        ReminderEffect.ShowNotification(reminder, NotificationKind.NAG).describe() shouldBe
+            "ShowNotification(reminder 2, NAG)"
+        ReminderEffect.SetAlarm(2, NOW, AlarmKind.DELIVER, NOW).describe() shouldBe
+            "SetAlarm(reminder 2, DELIVER, at $NOW)"
+        ReminderEffect.CancelAlarm(2).describe() shouldBe "CancelAlarm(reminder 2)"
+        ReminderEffect.CancelNotification(2).describe() shouldBe
+            "CancelNotification(reminder 2)"
+    }
+
 })
 
 /** The one scheduled reminder the payloads above name, due at [dueTime]. */
@@ -748,5 +852,32 @@ private class RecordingExecutor : ReminderEffectExecutor {
     val effects = mutableListOf<ReminderEffect>()
     override fun execute(effect: ReminderEffect) {
         effects.add(effect)
+    }
+}
+
+/**
+ * An executor that fails on the effects [fails] picks out and records the rest, so that
+ * a test can see which effects still ran after one of them threw.
+ */
+private class ExecutorThatFails(private val fails: (ReminderEffect) -> Boolean) :
+    ReminderEffectExecutor {
+    val ran = mutableListOf<ReminderEffect>()
+
+    override fun execute(effect: ReminderEffect) {
+        if (fails(effect)) {
+            throw IllegalStateException("the effect could not be carried out")
+        }
+        ran.add(effect)
+    }
+}
+
+/** What the app logs, kept instead: the effects that could not be carried out. */
+private class RecordedFailures : (ReminderEffect, Exception) -> Unit {
+    val effects = mutableListOf<ReminderEffect>()
+    val failures = mutableListOf<Exception>()
+
+    override fun invoke(effect: ReminderEffect, failure: Exception) {
+        effects.add(effect)
+        failures.add(failure)
     }
 }

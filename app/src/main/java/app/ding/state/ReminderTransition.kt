@@ -179,6 +179,22 @@ sealed interface ReminderEffect {
     data class CancelNotification(val reminderId: Int) : ReminderEffect
 }
 
+/**
+ * The effect named by what it does and to which reminder, without the reminder's own
+ * text.
+ *
+ * Every line written about an effect goes through this rather than through the data
+ * class's own printing: the id is enough to follow one reminder through a log, and the
+ * text is what the user wrote. It lives with the effects rather than with whoever logs
+ * them so that a new effect cannot be added without answering the question.
+ */
+fun ReminderEffect.describe(): String = when (this) {
+    is ReminderEffect.SetAlarm -> "SetAlarm(reminder $reminderId, $kind, at $at)"
+    is ReminderEffect.CancelAlarm -> "CancelAlarm(reminder $reminderId)"
+    is ReminderEffect.ShowNotification -> "ShowNotification(reminder ${reminder.id}, $kind)"
+    is ReminderEffect.CancelNotification -> "CancelNotification(reminder $reminderId)"
+}
+
 /** The answer to one command: what to store, and what to do afterwards. */
 data class TransitionResult(
     val outcome: TransitionOutcome,
