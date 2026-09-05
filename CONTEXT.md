@@ -59,8 +59,10 @@ Removing a reminder from the store. Cancels its alarm and notification.
 _Avoid_: remove, cancel
 
 **Reconcile**:
-The sweep at process start that brings alarms and notifications back in
-line with the store.
+The sweep that brings alarms and notifications back in line with the store.
+It runs at process start, and again when the user grants the notification
+permission, which is what makes a delivery that was suppressed while it was
+denied appear.
 _Avoid_: reschedule all, reshow, restore
 
 **First unlock**:
