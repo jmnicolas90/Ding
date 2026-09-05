@@ -130,5 +130,13 @@
     <string name="error_msg_reminder_not_found">Error: Reminder not found</string>
     <string name="error_msg_reminder_not_saved">Could not save the reminder. Nothing was changed.</string>
 
+    <string name="dialog_reminders_unreadable_title">Stored reminders could not be read</string>
+    <string name="dialog_reminders_unreadable_message">The saved reminders could not be read, so they were set aside and the app started with an empty list. Nothing has been deleted.\n\nYou can share the raw data to keep a copy or send it with a bug report, or discard it. This message comes back every time you open the app until you discard the data.</string>
+    <string name="dialog_reminders_unreadable_share">Share raw data</string>
+    <string name="dialog_reminders_unreadable_discard">Discard</string>
+    <string name="dialog_reminders_unreadable_discard_confirm_title">Discard the data that could not be read?</string>
+    <string name="dialog_reminders_unreadable_discard_confirm_message">The raw data will be deleted from the app. This cannot be undone.</string>
+    <string name="share_reminders_unreadable_subject">Ding reminders that could not be read</string>
+
     <string name="tmp_templates_fragment_coming_soon">Coming soon: Save frequent reminders and reschedule them even more quickly!</string>
 </resources>

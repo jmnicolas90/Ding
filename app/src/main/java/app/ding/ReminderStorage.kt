@@ -24,8 +24,13 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import app.ding.data.Reminder
+import app.ding.state.DecodeResult
+import app.ding.state.KNOWN_STORED_REMINDERS_FORMAT_VERSION
+import app.ding.state.QuarantinedReminders
 import app.ding.state.ReminderStore
 import app.ding.state.StoredReminders
+import app.ding.state.decodeStoredReminders
+import app.ding.state.quarantineToKeep
 import app.ding.state.writeWithRollback
 import app.ding.ui.reminderslist.RemindersListFragment
 
@@ -36,6 +41,11 @@ import app.ding.ui.reminderslist.RemindersListFragment
  * Reading is public, for the list and the edit dialog. Writing is not: it happens
  * only through [storeIn], which [ReminderManager] hands to the one command runner,
  * so that every change to a reminder passes the transition function first.
+ *
+ * Reading never throws. The decoding is `decodeStoredReminders` in `app.ding.state`,
+ * and a stored value it cannot read is moved to keys of its own — see [setAside] —
+ * before anything writes to the normal ones, so the app starts on an empty list with
+ * the value the user might still want kept intact and offered to them.
  */
 object ReminderStorage {
     class ReminderNotFoundException(message: String?) : RuntimeException(message)
@@ -52,12 +62,27 @@ object ReminderStorage {
     private data class StatePrefValues(val remindersJson: String, val nextId: Int)
 
     private class SharedPreferencesStore(private val context: Context) : ReminderStore {
+        /**
+         * Reads the store, and never throws: this runs from `Main.onCreate` on every
+         * process start, so an exception here is an app that cannot be launched at all.
+         * A value that cannot be decoded is set aside instead, and the app runs on an
+         * empty store until the user decides what to do with it.
+         */
         override fun read(): StoredReminders {
             val prefs = Prefs.getStatePrefs(context)
-            return StoredReminders(
-                reminders = getRemindersFromPrefs(prefs),
-                nextId = prefs.getInt(Prefs.PREF_STATE_NEXTID, 0)
+            val nextId = readNextId(prefs)
+            val decoded = decodeStoredReminders(
+                readFormatVersion = { Prefs.getStoredRemindersListFormatVersion(context) },
+                readRawJson = { prefs.getString(Prefs.PREF_STATE_CURRENT_REMINDERS, null) }
             )
+            return when (decoded) {
+                is DecodeResult.Readable -> StoredReminders(decoded.reminders, nextId)
+                DecodeResult.Empty -> StoredReminders(emptyList(), nextId)
+                is DecodeResult.Unreadable -> {
+                    setAside(context, decoded)
+                    StoredReminders(emptyList(), nextId)
+                }
+            }
         }
 
         /**
@@ -119,8 +144,8 @@ object ReminderStorage {
         private fun readValues(): StatePrefValues {
             val prefs = Prefs.getStatePrefs(context)
             return StatePrefValues(
-                remindersJson = prefs.getString(Prefs.PREF_STATE_CURRENT_REMINDERS, "[]")!!,
-                nextId = prefs.getInt(Prefs.PREF_STATE_NEXTID, 0)
+                remindersJson = readRawJson(prefs) ?: EMPTY_REMINDERS_JSON,
+                nextId = readNextId(prefs)
             )
         }
 
@@ -139,17 +164,134 @@ object ReminderStorage {
     }
 
     /**
-     * Returns an immutable list of the saved reminders.
-     *
-     * @param prefs
-     * @return
+     * Returns an immutable list of the saved reminders, or an empty list when the
+     * stored value cannot be read — in which case it has been set aside, exactly as it
+     * would be on a process start. Reading goes through the store so that there is one
+     * decoding of the reminders and no way of bypassing the recovery it does.
      */
-    private fun getRemindersFromPrefs(prefs: SharedPreferences): List<Reminder> {
-        return Reminder.fromJson(prefs.getString(Prefs.PREF_STATE_CURRENT_REMINDERS, "[]")!!)
+    fun getReminders(context: Context): List<Reminder> =
+        SharedPreferencesStore(context).read().reminders
+
+    /** What is stored for no reminders at all, and what a value set aside leaves behind. */
+    private const val EMPTY_REMINDERS_JSON = "[]"
+
+    private const val TAG = "ReminderStorage"
+
+    /**
+     * The stored reminder list, as text, or null when nothing is stored or the stored
+     * value is not text at all.
+     */
+    private fun readRawJson(prefs: SharedPreferences): String? = try {
+        prefs.getString(Prefs.PREF_STATE_CURRENT_REMINDERS, null)
+    } catch (e: ClassCastException) {
+        Log.e(TAG, "The stored reminders are not text.", e)
+        null
     }
 
-    fun getReminders(context: Context): List<Reminder> {
-        return getRemindersFromPrefs(Prefs.getStatePrefs(context))
+    private fun readNextId(prefs: SharedPreferences): Int = try {
+        prefs.getInt(Prefs.PREF_STATE_NEXTID, 0)
+    } catch (e: ClassCastException) {
+        Log.e(TAG, "The stored id counter is not a number; starting it again from 0.", e)
+        0
+    }
+
+    /**
+     * Moves an unreadable stored value to the keys it is kept under, and empties the
+     * normal ones, in one commit.
+     *
+     * Both halves are one commit on purpose: from here on the app runs on an empty
+     * store, so nothing it writes afterwards can land on top of the value the user
+     * might still want. Only one value is kept — [quarantineToKeep] keeps the first —
+     * because a later failure is usually a consequence of the first one, and letting
+     * it in would overwrite the only copy of the reminders that were really there.
+     */
+    @SuppressLint("ApplySharedPref")
+    private fun setAside(context: Context, unreadable: DecodeResult.Unreadable) {
+        val prefs = Prefs.getStatePrefs(context)
+        val existing = getQuarantinedReminders(context)
+        val keep = quarantineToKeep(
+            existing = existing,
+            candidate = QuarantinedReminders(
+                // A value of the wrong type could not be read as text, so it is kept as
+                // whatever it prints as rather than thrown away.
+                raw = unreadable.raw ?: prefs.all[Prefs.PREF_STATE_CURRENT_REMINDERS]?.toString(),
+                formatVersion = storedFormatVersion(prefs),
+                quarantinedAt = System.currentTimeMillis()
+            )
+        )
+        if (existing != null) {
+            Log.w(
+                TAG,
+                "A second unreadable stored value (${unreadable.reason}) was dropped; " +
+                    "the one set aside at ${existing.quarantinedAt} is kept."
+            )
+        }
+        val editor = prefs.edit()
+            .putString(Prefs.PREF_STATE_REMINDERS_UNREADABLE, keep.raw)
+            .putLong(Prefs.PREF_STATE_REMINDERS_UNREADABLE_AT, keep.quarantinedAt)
+            .putString(Prefs.PREF_STATE_CURRENT_REMINDERS, EMPTY_REMINDERS_JSON)
+            .putInt(
+                Prefs.PREF_STATE_REMINDERS_FORMAT_VERSION,
+                KNOWN_STORED_REMINDERS_FORMAT_VERSION
+            )
+        if (keep.formatVersion == null) {
+            editor.remove(Prefs.PREF_STATE_REMINDERS_UNREADABLE_FORMAT_VERSION)
+        } else {
+            editor.putInt(
+                Prefs.PREF_STATE_REMINDERS_UNREADABLE_FORMAT_VERSION,
+                keep.formatVersion
+            )
+        }
+        val committed = editor.commit()
+        Log.e(
+            TAG,
+            "The stored reminders could not be read (${unreadable.reason}); " +
+                "set aside for the user to keep or discard, committed=$committed"
+        )
+    }
+
+    /** The version the store records for itself, or null when it is missing or not a number. */
+    private fun storedFormatVersion(prefs: SharedPreferences): Int? = try {
+        if (prefs.contains(Prefs.PREF_STATE_REMINDERS_FORMAT_VERSION)) {
+            prefs.getInt(Prefs.PREF_STATE_REMINDERS_FORMAT_VERSION, 0)
+        } else {
+            null
+        }
+    } catch (e: ClassCastException) {
+        null
+    }
+
+    /**
+     * The stored value that could not be read, or null when there is none. The
+     * reminders list activity offers it to the user to share or to discard; nothing
+     * else reads it, and nothing at all overwrites it.
+     */
+    fun getQuarantinedReminders(context: Context): QuarantinedReminders? {
+        val prefs = Prefs.getStatePrefs(context)
+        if (!prefs.contains(Prefs.PREF_STATE_REMINDERS_UNREADABLE)) return null
+        return QuarantinedReminders(
+            raw = prefs.getString(Prefs.PREF_STATE_REMINDERS_UNREADABLE, null),
+            formatVersion =
+                if (prefs.contains(Prefs.PREF_STATE_REMINDERS_UNREADABLE_FORMAT_VERSION)) {
+                    prefs.getInt(Prefs.PREF_STATE_REMINDERS_UNREADABLE_FORMAT_VERSION, 0)
+                } else {
+                    null
+                },
+            quarantinedAt = prefs.getLong(Prefs.PREF_STATE_REMINDERS_UNREADABLE_AT, 0)
+        )
+    }
+
+    /**
+     * Deletes the stored value that could not be read. Only the user asks for this, and
+     * only after confirming it: it is the one thing in the app that throws reminders
+     * away for good.
+     */
+    fun discardQuarantinedReminders(context: Context) {
+        Prefs.getStatePrefs(context).edit()
+            .remove(Prefs.PREF_STATE_REMINDERS_UNREADABLE)
+            .remove(Prefs.PREF_STATE_REMINDERS_UNREADABLE_FORMAT_VERSION)
+            .remove(Prefs.PREF_STATE_REMINDERS_UNREADABLE_AT)
+            .apply()
     }
 
     /**

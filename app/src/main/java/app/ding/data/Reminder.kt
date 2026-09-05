@@ -19,7 +19,6 @@ package app.ding.data
 import app.ding.data.Reminder.Companion.MAX_REMINDER_ID
 import app.ding.util.DateSerializer
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.*
@@ -106,9 +105,10 @@ constructor(
         fun toJson(reminders: List<Reminder?>?): String =
             Json.encodeToString(reminders)
 
-        @JvmStatic
-        fun fromJson(json: String): List<Reminder> =
-            Json.decodeFromString(ListSerializer(serializer()), json)
+        // There is deliberately no fromJson here. Decoding stored reminders is
+        // `decodeStoredReminders` in `app.ding.state`, which reads the format version
+        // and answers with a result instead of throwing; a second way in would be a way
+        // of bypassing that, and the store is read on every process start.
     }
 
     /**

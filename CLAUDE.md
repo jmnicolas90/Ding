@@ -162,7 +162,12 @@ before touching reminder state. The short version:
   `ReminderManager` is the Android half (alarms, notifications, pending
   intents) and exposes `run`, `addReminder` and `reconcileAllReminders`;
   `ReminderStorage` reads publicly and hands its writes to the runner alone.
-  `Reminder.status` is a `val`.
+  `Reminder.status` is a `val`. Reading never throws (ticket 13): decoding is
+  `decodeStoredReminders` in the same package, and a stored value it cannot read
+  is moved to `reminders_unreadable`, `reminders_unreadable_format_version` and
+  `reminders_unreadable_at` — one value, the first — before anything writes to
+  `reminders` again, so the app starts on an empty list and the user is offered
+  the raw data to share or discard instead of a startup crash loop.
 - **The stale-alarm rule and the missing-reminder rule both hold now.** Every
   Deliver and Nag alarm carries the due time it was set for, and a mismatch
   with the stored due time makes the alarm stale: ignored, not an error. A

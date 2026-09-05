@@ -266,6 +266,72 @@ class ReminderCommandRunnerTest : FunSpec({
         reminders.getValue(2).status shouldBe Status.NOTIFIED
         reminders.getValue(4).status shouldBe Status.DONE
     }
+
+    // Test 13 of `docs/reminder-state-machine.md`: a store that fails to decode does
+    // not throw out of Reconcile, and the raw value survives for recovery.
+
+    test("reconcile over a store that cannot be read does not throw and sets the raw value aside") {
+        val raw = """[{"id":2,"date":1788609540000,"text":"Water the pl"""
+        val store = QuarantiningFakeStore(raw)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        val result = runner.reconcileAll()
+
+        // The runner sees an empty store: there is nothing to change and nothing to
+        // do, which is the sweep's Unchanged answer for every reminder it can see.
+        result shouldBe ReconcileResult.Reconciled(emptyList())
+        executor.effects shouldBe emptyList()
+        store.quarantined?.raw shouldBe raw
+    }
+
+    test("an alarm that arrives while the store cannot be read cleans up instead of crashing") {
+        val raw = "this is not JSON"
+        val store = QuarantiningFakeStore(raw)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        // The alarm finds no reminder, so it takes the missing-reminder cleanup path.
+        val result = runner.run(ReminderCommand.Deliver(2, NOW - 60_000))
+
+        result shouldBe TransitionOutcome.Unchanged
+        executor.effects shouldBe listOf(
+            ReminderEffect.CancelAlarm(2),
+            ReminderEffect.CancelNotification(2)
+        )
+        store.quarantined?.raw shouldBe raw
+    }
+
+    test("a reminder added after the store was set aside does not touch the value set aside") {
+        val raw = "this is not JSON"
+        val store = QuarantiningFakeStore(raw)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.reconcileAll()
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        val added = (outcome as TransitionOutcome.Updated).reminder
+        store.read().reminders shouldBe listOf(added)
+        store.announcements shouldBe 1
+        // The app is usable again and the unreadable value is still there in full.
+        store.quarantined?.raw shouldBe raw
+    }
+
+    test("the value set aside is the first one when a second store cannot be read") {
+        val first = "the first damage"
+        val store = QuarantiningFakeStore(first)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.reconcileAll()
+        // Damaged a second time, after the app has been running on the empty store
+        // the first failure left it with.
+        store.rawJson = "the second damage"
+        runner.reconcileAll()
+
+        store.quarantined?.raw shouldBe first
+    }
 })
 
 /** The one scheduled reminder the payloads above name, due at [dueTime]. */
@@ -314,6 +380,64 @@ private class FakeStore(
     private fun commit(values: StoredReminders): Boolean {
         stored = values
         return writeSucceeds
+    }
+
+    override fun announceChange() {
+        announcements++
+    }
+}
+
+/**
+ * A store that keeps its reminders the way the shared-preferences adapter does: as
+ * raw JSON and a format version, decoded on every read, with a value that cannot be
+ * decoded set aside under a key of its own before anything writes to the normal
+ * ones. The two decisions it shares with the adapter are the pure ones —
+ * [decodeStoredReminders] and [quarantineToKeep] — so what these tests pin down is
+ * the runner's behaviour over a store it cannot read.
+ */
+private class QuarantiningFakeStore(
+    var rawJson: String?,
+    private var formatVersion: Int? = KNOWN_STORED_REMINDERS_FORMAT_VERSION,
+    private var nextId: Int = 4
+) : ReminderStore {
+    var quarantined: QuarantinedReminders? = null
+        private set
+    var announcements = 0
+    private var quarantines = 0
+
+    override fun read(): StoredReminders {
+        val reminders = when (val decoded = decodeStoredReminders({ formatVersion }, { rawJson })) {
+            is DecodeResult.Readable -> decoded.reminders
+            DecodeResult.Empty -> emptyList()
+            is DecodeResult.Unreadable -> {
+                quarantine(decoded)
+                emptyList()
+            }
+        }
+        return StoredReminders(reminders, nextId)
+    }
+
+    private fun quarantine(unreadable: DecodeResult.Unreadable) {
+        quarantines++
+        quarantined = quarantineToKeep(
+            existing = quarantined,
+            candidate = QuarantinedReminders(
+                raw = unreadable.raw,
+                formatVersion = formatVersion,
+                quarantinedAt = NOW + quarantines
+            )
+        )
+        // Emptied in the same step, so the app runs on an empty store rather than an
+        // unreadable one and no later write can land on the value set aside.
+        rawJson = "[]"
+        formatVersion = KNOWN_STORED_REMINDERS_FORMAT_VERSION
+    }
+
+    override fun write(stored: StoredReminders): Boolean {
+        rawJson = Reminder.toJson(stored.reminders)
+        formatVersion = KNOWN_STORED_REMINDERS_FORMAT_VERSION
+        nextId = stored.nextId
+        return true
     }
 
     override fun announceChange() {

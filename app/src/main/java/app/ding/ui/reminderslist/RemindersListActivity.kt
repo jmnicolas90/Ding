@@ -41,6 +41,8 @@ import app.ding.BuildConfig
 import app.ding.Main
 import app.ding.Prefs
 import app.ding.R
+import app.ding.ReminderStorage
+import app.ding.state.QuarantinedReminders
 import app.ding.ui.AddReminderDialogActivity
 import app.ding.ui.SettingsActivity
 import app.ding.ui.actions.DisplayChangeLog
@@ -121,6 +123,59 @@ class RemindersListActivity : AppCompatActivity() {
         } else if (isFirstRunOfVersion) {
             Main.showWelcomeMessageUpdate(this)
         }
+
+        // Opened last so that it is the one on top: reminders that could not be read are
+        // the only thing here the user can lose by not answering.
+        checkRemindersThatCouldNotBeRead()
+    }
+
+    /**
+     * If a stored value could not be read, it has been set aside instead of thrown away
+     * or crashed on. This is the one place the user is told, and the only way out of it:
+     * share the raw data to keep it, or discard it on purpose.
+     *
+     * The dialog does not close on a stray tap or a back press, and it comes back on
+     * every start of this activity until the data is discarded, because the app has been
+     * running on an empty reminder list since and silence about that would look like the
+     * reminders were simply gone.
+     */
+    private fun checkRemindersThatCouldNotBeRead() {
+        val quarantined = ReminderStorage.getQuarantinedReminders(this) ?: return
+        AlertDialog.Builder(this)
+            .setCancelable(false)
+            .setTitle(R.string.dialog_reminders_unreadable_title)
+            .setMessage(R.string.dialog_reminders_unreadable_message)
+            .setPositiveButton(R.string.dialog_reminders_unreadable_share) { _: DialogInterface?, _: Int ->
+                shareRemindersThatCouldNotBeRead(quarantined)
+            }
+            .setNegativeButton(R.string.dialog_reminders_unreadable_discard) { _: DialogInterface?, _: Int ->
+                confirmDiscardRemindersThatCouldNotBeRead()
+            }
+            .show()
+    }
+
+    /** Hands the raw stored value to whatever the user picks: a note, a file, an issue. */
+    private fun shareRemindersThatCouldNotBeRead(quarantined: QuarantinedReminders) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, getString(R.string.share_reminders_unreadable_subject))
+            putExtra(Intent.EXTRA_TEXT, quarantined.raw.orEmpty())
+        }
+        startActivity(
+            Intent.createChooser(intent, getString(R.string.dialog_reminders_unreadable_share))
+        )
+    }
+
+    /** Deleting the only copy needs a second answer, because nothing brings it back. */
+    private fun confirmDiscardRemindersThatCouldNotBeRead() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_reminders_unreadable_discard_confirm_title)
+            .setMessage(R.string.dialog_reminders_unreadable_discard_confirm_message)
+            .setPositiveButton(R.string.dialog_reminders_unreadable_discard) { _: DialogInterface?, _: Int ->
+                ReminderStorage.discardQuarantinedReminders(this)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     override fun onNewIntent(intent: Intent) {

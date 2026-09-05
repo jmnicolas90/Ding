@@ -20,6 +20,7 @@ import android.app.Application
 import android.content.Context
 import androidx.preference.PreferenceManager
 import app.ding.ReminderManager.createNotificationChannel
+import app.ding.state.KNOWN_STORED_REMINDERS_FORMAT_VERSION
 import app.ding.ui.util.UIUtils
 
 class Main : Application() {
@@ -42,10 +43,12 @@ class Main : Application() {
 
     companion object {
         /**
-         * The current (newest) version of storing reminders in [Prefs].
+         * The current (newest) version of storing reminders in [Prefs]. It is the
+         * version the decoding in `app.ding.state` knows how to read; there is one
+         * number, not two that can drift apart.
          */
         @JvmField
-        var REMINDERS_LIST_FORMAT_VERSION = 1
+        val REMINDERS_LIST_FORMAT_VERSION = KNOWN_STORED_REMINDERS_FORMAT_VERSION
 
         @JvmStatic
         fun showWelcomeMessage(context: Context) {
