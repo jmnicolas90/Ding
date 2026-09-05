@@ -132,8 +132,10 @@ before touching reminder state. The short version:
   "Overdue" is not a state: a `SCHEDULED` reminder whose due time has passed
   is simply one that the startup sweep delivers on sight.
 - **Deliver** is the transition that shows the notification and moves
-  `SCHEDULED` to `NOTIFIED`. **Mark done** is the transition to `DONE`,
-  whether by swiping the notification away, its action button, or the list.
+  `SCHEDULED` to `NOTIFIED`. **Mark done** is the transition to `DONE`, by
+  swiping the notification away or from the reminders list. The notification
+  has no mark-done button: clicking it opens the edit dialog. Adding one is on
+  the fork's own feature list, `docs/planned-features.md`.
 - **Nagging** is repeat delivery of a `NOTIFIED` reminder at a fixed
   interval, counted from its original due time, until it is dealt with.
   Counting from the due time rather than from the last nag is deliberate: a
@@ -146,13 +148,13 @@ before touching reminder state. The short version:
 - **The id doubles as the notification id and as the `PendingIntent` request
   code**, which is what the even-numbered allocation is for. A reminder's
   Deliver and Nag alarms both use request code `id`, so they share one alarm
-  slot and setting either one replaces the other; the mark-done action from
-  a notification uses `id + 1`, which the gap between even ids keeps free.
-  The notification is posted with `notify(reminder.id, ...)`, so a nag
-  replaces the previous notification instead of stacking. Consequence: an id
-  is an identity across three different Android subsystems at once, and
-  reusing or re-deriving one silently cross-wires alarms, notifications and
-  intents.
+  slot and setting either one replaces the other; the mark-done broadcast that
+  a swiped-away notification sends uses `id + 1`, which the gap between even
+  ids keeps free. The notification is posted with `notify(reminder.id, ...)`,
+  so a nag replaces the previous notification instead of stacking.
+  Consequence: an id is an identity across three different Android subsystems
+  at once, and reusing or re-deriving one silently cross-wires alarms,
+  notifications and intents.
 - **Every reminder state change goes through one pure function** (ticket 10).
   `app/src/main/java/app/ding/state/ReminderTransition.kt` holds
   `transition(stored, command, now)`, which returns an outcome and a list of

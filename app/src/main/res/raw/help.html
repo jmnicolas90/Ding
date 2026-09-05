@@ -35,17 +35,20 @@
         The "+x" next to the date indicates how many days the selected date is ahead. The date is displayed in orange to indicate that it is chosen manually.</p>
     <h4>Specifying time via text</h4>
     <p><i>This feature can be enabled in the settings.</i></p>
-    <p>As an alternative to using the clock widget, the reminder time can be specified via text by typing it at the beginning of the text field. The available formats are (where [x] represents an optional part):
+    <p>As an alternative to using the clock widget, the reminder time can be specified via text by typing it at the beginning of the text field. The dot separates hours from minutes in a clock time, and the colon in a time counted from now. The available formats are (where [x] represents an optional part):
         <ul>
-            <li>h[h]:mm for setting the time (24 hour format)</li>
-            <li>+h[h][h]:mm for adding the given number of hours and minutes to the current time</li>
-            <li>+m[m][m] for adding the given number of minutes to the current time</li>
+            <li>h[h].mm &ndash; the clock time, 24 hour format, hours 0 to 23 and minutes 00 to 59. "12.30" means half past twelve, "9.05" five past nine.</li>
+            <li>+h[h][h]:mm &ndash; that many hours and minutes from now. "+1:30" means in one hour and thirty minutes.</li>
+            <li>h[h][h]:mm &ndash; the same as above without the plus, so it is also counted from now. "12:30" means in twelve hours and thirty minutes, <b>not</b> half past twelve.</li>
+            <li>+m[m][m] &ndash; that many minutes from now. "+90" means in ninety minutes.</li>
+            <li>:m[m][m] &ndash; the same as above without the plus. ":90" also means in ninety minutes.</li>
         </ul>
     </p>
+    <p>The minutes are always two digits when hours are given, so "1:2" and "12.3" are not recognised as a time.</p>
     <p></p>
     <p>A space separates the time specification and reminder text.
     <p>If the date is changed through an addition of hours and minutes, this is diplayed with a green "+x" next to the date.</p>
-    <p>It is possible to combine setting date and time with widgets and text. For example, one can select the date with buttons or the calendar, and independently specify the time via the "hh:mm" format. However, specifying the time with a relative format ("+...") will always reset any previous choices. Using the clock widget removes any text-based time specification, which is a useful way to correct the selected time.
+    <p>It is possible to combine setting date and time with widgets and text. For example, one can select the date with buttons or the calendar, and independently specify the clock time via the "hh.mm" format. However, a time counted from now (any of the colon formats, with or without the plus) sets the date as well and will always reset any previous choices. Using the clock widget removes any text-based time specification, which is a useful way to correct the selected time.
     </p>
     <h4>Adding the reminder</h4>
     <p>To add the reminder, either click the "Add" button on the keyboard (usually a button on the bottom right, with a symbol or titled "Add") or click "Add" at the bottom of the dialog.</p>
@@ -54,7 +57,7 @@
     <h3>Nagging reminders</h3>
     <p>The switch next to the reminder text makes the reminder "nagging": when due, the notification will be renewed every x minutes, producing the same alert (sound, vibration, ...) as when first shown. This continues until the notification is dismissed.</p>
 
-    <p>The repeat interval for the current reminder can be adjusted by long-clicking the switch. The default value can be changed in the settings.</p>
+    <p>The repeat interval for the current reminder can be adjusted by long-clicking the switch; it is between 1 minute and 1440 minutes (24 hours). The default value can be changed in the settings.</p>
 
     <!-- Not necessary to mention: -->
     <!-- <p>Note that changing the default repeat interval in the settings does not affect already scheduled reminders.</p>
@@ -63,6 +66,9 @@
 
     <h3>Editing a reminder</h3>
     To edit a reminder, either click on the notification or the entry in the reminders list.
+
+    <h3>Marking a reminder done</h3>
+    Swipe the notification away, or long-click the reminder in the reminders list and choose "Mark done". Clicking the notification opens the reminder for editing instead; the notification has no button for marking it done.
 
     <h3>Reminders list</h3>
     <p>The reminders list can be reached via
@@ -96,7 +102,7 @@
 
       <h3>Tips</h3>
       <ul>
-          <li>To <b>test</b> how a reminder is shown, add a reminder without changing the date or time. The reminder will be shown immediately.</li>
+          <li>To <b>test</b> how a reminder is shown, set the time one or two minutes ahead and add the reminder. A reminder has to be due in the future: adding one for the current minute is refused with "Invalid date: must be in the future".</li>
       </ul>
 
       <h3>Questions</h3>

@@ -40,8 +40,9 @@ its due time, until it is dealt with.
 _Avoid_: repeat, remind again
 
 **Mark done**:
-The transition to Done, whether by swiping the notification away, its
-action button, or the list.
+The transition to Done, by swiping the notification away or from the reminders
+list. The notification carries no button for it: clicking it opens the reminder
+for editing.
 _Avoid_: dismiss, complete, acknowledge
 
 **Reschedule**:
