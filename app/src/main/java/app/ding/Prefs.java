@@ -56,7 +56,26 @@ public class Prefs {
     /**
      * The version of the format reminders are saved at key {@link #PREF_STATE_CURRENT_REMINDERS}.
      */
-    private static final String PREF_STATE_REMINDERS_FORMAT_VERSION = "remindersFormatVersion";
+    static final String PREF_STATE_REMINDERS_FORMAT_VERSION = "remindersFormatVersion";
+
+    /**
+     * A stored reminder list that could not be read, kept exactly as it was found so that
+     * the user can still export it. {@link ReminderStorage} moves the value here before
+     * anything writes to {@link #PREF_STATE_CURRENT_REMINDERS} again, and only ever holds
+     * one: a second unreadable value is dropped and the first one kept.
+     */
+    static final String PREF_STATE_REMINDERS_UNREADABLE = "reminders_unreadable";
+
+    /**
+     * The format version the value at {@link #PREF_STATE_REMINDERS_UNREADABLE} was stored at.
+     */
+    static final String PREF_STATE_REMINDERS_UNREADABLE_FORMAT_VERSION = "reminders_unreadable_format_version";
+
+    /**
+     * When the value at {@link #PREF_STATE_REMINDERS_UNREADABLE} was set aside, in epoch
+     * milliseconds.
+     */
+    static final String PREF_STATE_REMINDERS_UNREADABLE_AT = "reminders_unreadable_at";
 
     /**
      * The next ID for a reminder.
@@ -92,15 +111,6 @@ public class Prefs {
     @SuppressLint("ApplySharedPref")
     public static void setRemindersUpdated(boolean b, Context context) {
         getStatePrefs(context).edit().putBoolean(PREF_STATE_REMINDERS_UPDATED, b).commit();
-    }
-
-    @SuppressLint("ApplySharedPref")
-    public static int getStoredRemindersListFormatVersion(Context context) {
-        SharedPreferences prefs = getStatePrefs(context);
-        if (!prefs.contains(PREF_STATE_REMINDERS_FORMAT_VERSION)) {
-            prefs.edit().putInt(PREF_STATE_REMINDERS_FORMAT_VERSION, Main.REMINDERS_LIST_FORMAT_VERSION).commit();
-        }
-        return prefs.getInt(PREF_STATE_REMINDERS_FORMAT_VERSION, Main.REMINDERS_LIST_FORMAT_VERSION);
     }
 
     /**

@@ -28,7 +28,11 @@ class Main : Application() {
         super.onCreate()
 
         PreferenceManager.setDefaultValues(this, R.xml.preferences, true)
-        Prefs.getStoredRemindersListFormatVersion(this) // Initialize if not set
+        // The stored format version is not read here. It is read by the decoding, which
+        // is the one thing that knows what to do with a version it does not understand
+        // or with a value of another type; a typed read here would throw out of
+        // onCreate, which is the startup crash loop ticket 13 is about. Nothing writes
+        // it on a read either: it is written with the reminders, in the same commit.
         createNotificationChannel(this)
 
         // Reconcile on app startup: schedule future reminders, deliver past-due ones and re-show
@@ -41,12 +45,6 @@ class Main : Application() {
     }
 
     companion object {
-        /**
-         * The current (newest) version of storing reminders in [Prefs].
-         */
-        @JvmField
-        var REMINDERS_LIST_FORMAT_VERSION = 1
-
         @JvmStatic
         fun showWelcomeMessage(context: Context) {
             UIUtils.showMessageDialog(R.string.dialog_welcome_title, R.string.welcome_message, context)

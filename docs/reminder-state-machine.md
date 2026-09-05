@@ -200,14 +200,18 @@ The transition function is wrapped by one entry point, the only public
 mutation on `ReminderManager`:
 
 1. Take the storage lock.
-2. Read the stored reminder (or all of them, for Reconcile).
-3. Call the transition function with the current time.
-4. On `Updated` or `Removed`, write the whole list and check the commit
+2. Set aside the stored value if the store reports it cannot be read, and stop
+   with a persistence failure if that write does not commit. Reading never
+   writes, so this is the only place the recovery happens, and the first
+   command of a process is the startup Reconcile.
+3. Read the stored reminder (or all of them, for Reconcile).
+4. Call the transition function with the current time.
+5. On `Updated` or `Removed`, write the whole list and check the commit
    result. A failed commit releases the lock and returns a typed
    persistence failure. No broadcast, no effects.
-5. On success, release the lock, broadcast the change, then execute the
+6. On success, release the lock, broadcast the change, then execute the
    effects in order.
-6. Return the outcome to the caller.
+7. Return the outcome to the caller.
 
 Persist first, then effects. A Deliver whose write succeeds but whose
 notification is blocked by a missing permission leaves a `NOTIFIED`

@@ -59,7 +59,7 @@ class ReminderCommandRunnerTest : FunSpec({
         executor.effects.filterIsInstance<ReminderEffect.ShowNotification>() shouldHaveSize 1
         store.writes shouldHaveSize 1
         store.announcements shouldBe 1
-        store.read().reminders.single().status shouldBe Status.NOTIFIED
+        store.read().stored.reminders.single().status shouldBe Status.NOTIFIED
     }
 
     test("adding a reminder allocates the next even id and moves the counter") {
@@ -71,7 +71,7 @@ class ReminderCommandRunnerTest : FunSpec({
 
         val added = (outcome as TransitionOutcome.Updated).reminder
         added.id shouldBe 4
-        store.read() shouldBe StoredReminders(listOf(added), nextId = 6)
+        store.read().stored shouldBe StoredReminders(listOf(added), nextId = 6)
         executor.effects shouldBe listOf(
             ReminderEffect.SetAlarm(4, NOW + 60_000, AlarmKind.DELIVER, NOW + 60_000)
         )
@@ -89,7 +89,7 @@ class ReminderCommandRunnerTest : FunSpec({
 
         executor.effects.filterIsInstance<ReminderEffect.ShowNotification>()
             .map { it.kind } shouldBe listOf(NotificationKind.DELIVER)
-        store.read().reminders.single().status shouldBe Status.NOTIFIED
+        store.read().stored.reminders.single().status shouldBe Status.NOTIFIED
     }
 
     test("an alarm set before the upgrade adds nothing to the cold start") {
@@ -151,7 +151,7 @@ class ReminderCommandRunnerTest : FunSpec({
         store.announcements shouldBe 0
         executor.effects shouldBe emptyList()
         // The reminder is still scheduled on disk, exactly as it was.
-        store.read() shouldBe stored
+        store.read().stored shouldBe stored
     }
 
     test("an add whose commit fails allocates nothing and is a typed failure") {
@@ -166,7 +166,7 @@ class ReminderCommandRunnerTest : FunSpec({
         store.announcements shouldBe 0
         // No alarm for a reminder that is not in the store: that is the reported bug.
         executor.effects shouldBe emptyList()
-        store.read() shouldBe stored
+        store.read().stored shouldBe stored
     }
 
     test("a reconciliation whose commit fails is a typed failure and delivers nothing") {
@@ -180,7 +180,7 @@ class ReminderCommandRunnerTest : FunSpec({
         result shouldBe PersistenceFailed
         store.announcements shouldBe 0
         executor.effects shouldBe emptyList()
-        store.read() shouldBe stored
+        store.read().stored shouldBe stored
     }
 
     test("a command after a failed write works normally") {
@@ -196,7 +196,7 @@ class ReminderCommandRunnerTest : FunSpec({
         result shouldBe TransitionOutcome.Updated(
             scheduled(NOW + 60_000).copy(status = Status.DONE)
         )
-        store.read().reminders.single().status shouldBe Status.DONE
+        store.read().stored.reminders.single().status shouldBe Status.DONE
         store.announcements shouldBe 1
         executor.effects shouldBe listOf(
             ReminderEffect.CancelAlarm(2),
@@ -221,7 +221,7 @@ class ReminderCommandRunnerTest : FunSpec({
         // The failed add allocated nothing: the id it was given is still free, and it
         // left no phantom reminder behind for this write to persist without an alarm.
         added.id shouldBe 4
-        store.read() shouldBe StoredReminders(listOf(added), nextId = 6)
+        store.read().stored shouldBe StoredReminders(listOf(added), nextId = 6)
         executor.effects shouldBe listOf(
             ReminderEffect.SetAlarm(4, NOW + 120_000, AlarmKind.DELIVER, NOW + 120_000)
         )
@@ -236,14 +236,14 @@ class ReminderCommandRunnerTest : FunSpec({
 
         runner.run(ReminderCommand.Deliver(2, dueTime)) shouldBe PersistenceFailed
         // Still scheduled, so the consumed alarm is not the only chance left.
-        store.read() shouldBe stored
-        store.read().reminders.single().status shouldBe Status.SCHEDULED
+        store.read().stored shouldBe stored
+        store.read().stored.reminders.single().status shouldBe Status.SCHEDULED
 
         store.writeSucceeds = true
         runner.reconcileAll()
 
         executor.effects.filterIsInstance<ReminderEffect.ShowNotification>() shouldHaveSize 1
-        store.read().reminders.single().status shouldBe Status.NOTIFIED
+        store.read().stored.reminders.single().status shouldBe Status.NOTIFIED
     }
 
     test("a mark done whose commit fails leaves its own reminder notified") {
@@ -262,9 +262,142 @@ class ReminderCommandRunnerTest : FunSpec({
         runner.run(ReminderCommand.MarkDone(4)) shouldBe
             TransitionOutcome.Updated(second.copy(status = Status.DONE))
 
-        val reminders = store.read().reminders.associateBy { it.id }
+        val reminders = store.read().stored.reminders.associateBy { it.id }
         reminders.getValue(2).status shouldBe Status.NOTIFIED
         reminders.getValue(4).status shouldBe Status.DONE
+    }
+
+    // Test 13 of `docs/reminder-state-machine.md`: a store that fails to decode does
+    // not throw out of Reconcile, and the raw value survives for recovery.
+
+    test("reconcile over a store that cannot be read does not throw and sets the raw value aside") {
+        val raw = """[{"id":2,"date":1788609540000,"text":"Water the pl"""
+        val store = QuarantiningFakeStore(raw)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        val result = runner.reconcileAll()
+
+        // The runner sees an empty store: there is nothing to change and nothing to
+        // do, which is the sweep's Unchanged answer for every reminder it can see.
+        result shouldBe ReconcileResult.Reconciled(emptyList())
+        executor.effects shouldBe emptyList()
+        store.quarantined?.raw shouldBe raw
+    }
+
+    test("an alarm that arrives while the store cannot be read cleans up instead of crashing") {
+        val raw = "this is not JSON"
+        val store = QuarantiningFakeStore(raw)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        // The alarm finds no reminder, so it takes the missing-reminder cleanup path.
+        val result = runner.run(ReminderCommand.Deliver(2, NOW - 60_000))
+
+        result shouldBe TransitionOutcome.Unchanged
+        executor.effects shouldBe listOf(
+            ReminderEffect.CancelAlarm(2),
+            ReminderEffect.CancelNotification(2)
+        )
+        store.quarantined?.raw shouldBe raw
+    }
+
+    test("a reminder added after the store was set aside does not touch the value set aside") {
+        val raw = "this is not JSON"
+        val store = QuarantiningFakeStore(raw)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.reconcileAll()
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        val added = (outcome as TransitionOutcome.Updated).reminder
+        store.read().stored.reminders shouldBe listOf(added)
+        store.announcements shouldBe 1
+        // The app is usable again and the unreadable value is still there in full.
+        store.quarantined?.raw shouldBe raw
+    }
+
+    test("a read reports a store it cannot read, and the add after it sets that value aside first") {
+        val raw = "this is not JSON"
+        val store = QuarantiningFakeStore(raw)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        // The list reads the store between two commands. It gets the empty view and a
+        // flag, and writes nothing at all: a set-aside from a read is a write outside
+        // the runner's lock, which is how it lands on top of a command in flight.
+        val reading = store.read()
+        reading.stored shouldBe StoredReminders(emptyList(), nextId = 0)
+        reading.unreadable shouldBe UnreadableReason.MALFORMED_JSON
+        store.quarantined shouldBe null
+        store.log shouldBe emptyList()
+
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        // Set aside first, added second: the reminder cannot be overwritten by a
+        // recovery that comes after it.
+        store.log shouldBe listOf("set aside", "write")
+        val added = (outcome as TransitionOutcome.Updated).reminder
+        store.read().stored.reminders shouldBe listOf(added)
+        store.quarantined?.raw shouldBe raw
+    }
+
+    test("a set-aside that does not commit is a typed failure, and the next command tries it again") {
+        val raw = "this is not JSON"
+        val store = QuarantiningFakeStore(raw, setAsideSucceeds = false)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        val result = runner.reconcileAll()
+
+        // Nothing was kept, so nothing may be acted on either: the sweep fails rather
+        // than carrying on as if the reminders had been recovered.
+        result shouldBe PersistenceFailed
+        executor.effects shouldBe emptyList()
+        store.announcements shouldBe 0
+        store.quarantined shouldBe null
+        store.read().unreadable shouldBe UnreadableReason.MALFORMED_JSON
+
+        store.setAsideSucceeds = true
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        store.quarantined?.raw shouldBe raw
+        store.read().stored.reminders shouldBe
+            listOf((outcome as TransitionOutcome.Updated).reminder)
+    }
+
+    test("an id counter that cannot be read does not let the next add replace a stored reminder") {
+        val stored = listOf(
+            scheduled(NOW + 60_000),
+            scheduled(NOW + 120_000).copy(id = 0, text = "Take the bins out")
+        )
+        // The counter is of another type: a read that answered 0 would hand the next
+        // add the id the second reminder already holds.
+        val store = QuarantiningFakeStore(Reminder.toJson(stored), nextId = null)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        val outcome = runner.add(NOW + 180_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        val added = (outcome as TransitionOutcome.Updated).reminder
+        added.id shouldBe 4
+        store.read().stored.reminders shouldBe stored + added
+    }
+
+    test("the value set aside is the first one when a second store cannot be read") {
+        val first = "the first damage"
+        val store = QuarantiningFakeStore(first)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.reconcileAll()
+        // Damaged a second time, after the app has been running on the empty store
+        // the first failure left it with.
+        store.rawJson = "the second damage"
+        runner.reconcileAll()
+
+        store.quarantined?.raw shouldBe first
     }
 })
 
@@ -300,7 +433,11 @@ private class FakeStore(
     val writes = mutableListOf<StoredReminders>()
     var announcements = 0
 
-    override fun read(): StoredReminders = stored
+    override fun read(): StoreReading = StoreReading(stored)
+
+    /** This store is always readable, so the runner never asks. */
+    override fun setAsideUnreadable(): StoredReminders =
+        error("There is nothing to set aside.")
 
     override fun write(stored: StoredReminders): Boolean {
         val result = writeWithRollback(this.stored, stored, ::commit)
@@ -318,6 +455,93 @@ private class FakeStore(
 
     override fun announceChange() {
         announcements++
+    }
+}
+
+/**
+ * A store that keeps its reminders the way the shared-preferences adapter does: as raw
+ * JSON, a format version and an id counter, decoded on every read, with a value that
+ * cannot be decoded set aside under keys of its own. The decisions it shares with the
+ * adapter are the pure ones — [readStore], [quarantineToKeep] and [writeWithRollback] —
+ * so what these tests pin down is the runner's behaviour over a store it cannot read.
+ *
+ * Reading changes nothing here either. Turn [setAsideSucceeds] off to make the
+ * set-aside commit fail, the way shared preferences do when the durable write does not
+ * go through.
+ */
+private class QuarantiningFakeStore(
+    var rawJson: String?,
+    private var formatVersion: Int? = KNOWN_STORED_REMINDERS_FORMAT_VERSION,
+    private var nextId: Int? = 4,
+    var setAsideSucceeds: Boolean = true
+) : ReminderStore {
+    var quarantined: QuarantinedReminders? = null
+        private set
+    var announcements = 0
+    private var setAsides = 0
+
+    /** What this store was asked to write, in order. */
+    val log = mutableListOf<String>()
+
+    override fun read(): StoreReading =
+        readStore({ formatVersion }, { rawJson }, { nextId })
+
+    override fun setAsideUnreadable(): StoredReminders? {
+        log.add("set aside")
+        setAsides++
+        val previous = values()
+        val keep = quarantineToKeep(
+            existing = quarantined,
+            candidate = QuarantinedReminders(
+                raw = rawJson,
+                formatVersion = formatVersion,
+                quarantinedAt = NOW + setAsides
+            )
+        )
+        // Emptied in the same commit, so the app runs on an empty store rather than an
+        // unreadable one and no later write can land on the value set aside.
+        val result = writeWithRollback(
+            previous = previous,
+            next = Values("[]", KNOWN_STORED_REMINDERS_FORMAT_VERSION, 0, keep),
+            commit = ::commit
+        )
+        return if (result.committed) StoredReminders(emptyList(), nextId = 0) else null
+    }
+
+    override fun write(stored: StoredReminders): Boolean {
+        log.add("write")
+        commit(
+            Values(
+                Reminder.toJson(stored.reminders),
+                KNOWN_STORED_REMINDERS_FORMAT_VERSION,
+                stored.nextId,
+                quarantined
+            )
+        )
+        return true
+    }
+
+    override fun announceChange() {
+        announcements++
+    }
+
+    /** Everything a set-aside touches, so that a failed one puts all of it back. */
+    private data class Values(
+        val rawJson: String?,
+        val formatVersion: Int?,
+        val nextId: Int?,
+        val quarantined: QuarantinedReminders?
+    )
+
+    private fun values() = Values(rawJson, formatVersion, nextId, quarantined)
+
+    /** Visible first, durable second — and a failed durable write keeps the new values. */
+    private fun commit(values: Values): Boolean {
+        rawJson = values.rawJson
+        formatVersion = values.formatVersion
+        nextId = values.nextId
+        quarantined = values.quarantined
+        return setAsideSucceeds
     }
 }
 
