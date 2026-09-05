@@ -37,8 +37,12 @@ import org.robolectric.shadows.ShadowAlarmManager
  * process *and deletes the app's exact alarms*. Nothing is left to fire, and the app
  * only finds out at its next process start, which may be days away — or never, since a
  * reminder app that is never opened is one that is only ever woken by the alarms it has
- * just lost. Android's own answer is the broadcast this test delivers, and until this
- * ticket Ding registered nothing for it.
+ * just lost. Android's own answer is the broadcast this test delivers, and until ticket
+ * 30 Ding registered nothing for it.
+ *
+ * That broadcast is the grant and nothing else — the platform documents that it is not
+ * sent when the permission is revoked — so the revocation is modelled here only as the
+ * silent starting position, never as something the app is told about (ticket 32).
  *
  * Pinned to 31 and 32 because those are the only versions where the path exists: from
  * 33 on `USE_EXACT_ALARM` makes the grant permanent and the broadcast is never sent.
@@ -89,7 +93,7 @@ class ExactAlarmPermissionGrantTest : RobolectricReminderHarness() {
     }
 
     @Test
-    fun `the revocation itself leaves an inexact alarm rather than none`() {
+    fun `access taken back again before the broadcast arrives leaves an inexact alarm rather than none`() {
         allowExactAlarms(true)
         val dueTime = now + oneMinute
         val reminder = addReminder(dueTime)
@@ -97,11 +101,12 @@ class ExactAlarmPermissionGrantTest : RobolectricReminderHarness() {
         androidRevokesTheAccessAndDeletesTheAlarms()
         deliverThePermissionStateChange()
 
-        // The broadcast says the state changed, not which way it changed, and the
-        // receiver deliberately does not ask. Reconciling on the revocation too is what
-        // turns "no alarm at all" into "an alarm that may fire late": the runner's
-        // scheduleExact falls back to an inexact alarm when the access is gone, and a
-        // late reminder beats a lost one.
+        // The race Android names on this broadcast: it is sent on the grant, but the
+        // user may have revoked the permission again before it is delivered, so an app
+        // must ask `canScheduleExactAlarms` rather than trust the grant it is being told
+        // about. The receiver never reads the grant at all — `scheduleExact` asks the
+        // platform as it sets each alarm — so this reconciliation leaves an alarm that
+        // may fire late rather than none at all or a `SecurityException`.
         val alarm = scheduledAlarms().single()
         assertEquals("something is set for the due time again", dueTime, alarm.triggerAtMs)
         assertEquals(reminder.id, shadowOf(alarm.pendingIntent).requestCode)
@@ -114,9 +119,11 @@ class ExactAlarmPermissionGrantTest : RobolectricReminderHarness() {
     }
 
     /**
-     * The revocation as the platform performs it: the access goes, and every alarm the
-     * app holds goes with it. Robolectric has no reader for that, so the alarms are
-     * drained one by one out of the shadow, which is the same thing seen from the app.
+     * The revocation as the platform performs it: the access goes, every alarm the app
+     * holds goes with it, and the app is told nothing — it is stopped instead. So this
+     * only ever sets a starting position; no broadcast follows from it. Robolectric has
+     * no reader for the deletion, so the alarms are drained one by one out of the shadow,
+     * which is the same thing seen from the app.
      */
     private fun androidRevokesTheAccessAndDeletesTheAlarms() {
         allowExactAlarms(false)
@@ -126,8 +133,8 @@ class ExactAlarmPermissionGrantTest : RobolectricReminderHarness() {
     }
 
     /**
-     * Hand the app the broadcast Android sends when the permission's state changes,
-     * through the receiver the manifest declares for it.
+     * Hand the app the broadcast Android sends when the permission is granted, through
+     * the receiver the manifest declares for it.
      *
      * Robolectric delivers a broadcast only to a receiver a test registered, never to
      * one the manifest declares — the same limit `send` works around in
@@ -141,7 +148,7 @@ class ExactAlarmPermissionGrantTest : RobolectricReminderHarness() {
             .setPackage(context.packageName)
         val declared = context.packageManager.queryBroadcastReceivers(broadcast, 0)
         assertEquals(
-            "the manifest declares one receiver for the permission change, not $declared",
+            "the manifest declares one receiver for the permission grant, not $declared",
             1,
             declared.size
         )

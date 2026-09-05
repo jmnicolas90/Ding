@@ -122,7 +122,7 @@ them: Robolectric needs the app's resources, hence
 `unitTests.includeAndroidResources` in `app/build.gradle`; each concrete class
 pins its own SDK level with `@Config`, which the harness deliberately does not
 carry, because the level is part of what a test is about — `@Config(sdk = [36])`
-for most, `@Config(sdk = [31, 32])` for the exact-alarm revocation path that
+for most, `@Config(sdk = [31, 32])` for the exact-alarm permission path that
 exists only there; and Robolectric delivers a broadcast only to a receiver a
 test registered, never to one the manifest declares, so a fired pending intent
 is handed to the receiver by the test, after checking which class the intent
