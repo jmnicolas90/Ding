@@ -192,10 +192,12 @@ fun readStore(
  * holds it.
  *
  * A counter that is not even is off by one from a number this app did write, so it is
- * rounded up and used. A counter with no number in it that can mean anything — of
- * another type, negative, or past [EXHAUSTED_ID_COUNTER], none of which this app ever
- * wrote — contributes nothing, and the reminders answer alone. 0 comes out only when
- * neither half says anything, which is the genuine first run.
+ * rounded up and used. One at or above [EXHAUSTED_ID_COUNTER] is clamped to it: however
+ * far past the id space it has been pushed, it still says ids were handed out, so the
+ * answer is that there is none left rather than that there are all of them left. Only a
+ * counter with no number in it that can mean anything — of another type, or negative —
+ * contributes nothing, and the reminders answer alone. 0 comes out only when neither
+ * half says anything, which is the genuine first run.
  *
  * @param storedNextId null when the store holds no number at all.
  */
@@ -247,13 +249,24 @@ private fun counterPast(storedNextId: Int?, largestAllocatedId: Int?): Int =
  * The stored counter as a number that can be used, or null when it holds nothing this
  * app could have written.
  *
- * [EXHAUSTED_ID_COUNTER] is the top of the range and is usable: it is what the store
- * holds once the last id has been handed out, and an Add against it is refused rather
- * than the counter lowered. A negative number, or one above that, is no record of an
- * allocation at all, because the app could never have written it.
+ * [EXHAUSTED_ID_COUNTER] is the top of the range, and a counter at or above it is
+ * clamped to it rather than thrown away. Above it is a number this app never wrote, but
+ * it is still a number saying ids were handed out, and the whole point of recovering a
+ * counter is that it may only move up: discarding it leaves the reminders to answer
+ * alone, an empty list answers 0, and the next Add takes back an id whose notification,
+ * alarm and pending intents this install may still have live in the OS. Clamped, the
+ * store simply has no id left to give and the Add is refused with
+ * [RefusalReason.IdSpaceExhausted], which is the safe way to be wrong.
+ *
+ * A negative number is the one value that still contributes nothing: no id was ever
+ * negative, so it says nothing about how far the counter had got, and there is no
+ * direction to clamp it in that is not made up.
  */
 private fun usableCounter(storedNextId: Int?): Int? = storedNextId
-    ?.takeIf { it in 0..EXHAUSTED_ID_COUNTER }
+    ?.takeIf { it >= 0 }
+    // Clamped before the parity rounding below, which on Int.MAX_VALUE would otherwise
+    // overflow to a negative number.
+    ?.coerceAtMost(EXHAUSTED_ID_COUNTER)
     // Ids are even. Rounding up rather than down is what keeps the answer from landing
     // back on an id the store had already gone past.
     ?.let { if (it % 2 == 0) it else it + 1 }

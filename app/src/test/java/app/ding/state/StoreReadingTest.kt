@@ -201,6 +201,42 @@ class StoreReadingTest : FunSpec({
             EXHAUSTED_ID_COUNTER
     }
 
+    test("a counter above the mark for having none left is clamped to it, not thrown away") {
+        // A number this app could not have written is still evidence that ids were
+        // handed out. Throwing it away leaves an empty list to answer alone, which
+        // answers 0, and the next Add takes id 0 back from whatever notification, alarm
+        // or pending intent still holds it. Clamping fails closed instead: the counter
+        // never goes down, and an Add against it is refused.
+        nextIdToUse(storedNextId = EXHAUSTED_ID_COUNTER + 2, reminders = emptyList()) shouldBe
+            EXHAUSTED_ID_COUNTER
+        nextIdToUse(storedNextId = Int.MAX_VALUE, reminders = emptyList()) shouldBe
+            EXHAUSTED_ID_COUNTER
+    }
+
+    test("a counter above the mark for having none left is clamped on the way in to a read") {
+        listOf(EXHAUSTED_ID_COUNTER + 2, Int.MAX_VALUE).forEach { counter ->
+            val reading = readStore(
+                readFormatVersion = { KNOWN_STORED_REMINDERS_FORMAT_VERSION },
+                readRawJson = { "[]" },
+                readNextId = { counter }
+            )
+
+            reading.stored shouldBe StoredReminders(emptyList(), nextId = EXHAUSTED_ID_COUNTER)
+            // The clamp is a repair like the others, and is logged as one.
+            reading.counterRepaired shouldBe true
+        }
+    }
+
+    test("a counter above the mark for having none left is clamped by a quarantine too") {
+        // The read path and the rebuild have to agree, or the counter drops the moment
+        // an unreadable value is set aside.
+        listOf(EXHAUSTED_ID_COUNTER + 2, Int.MAX_VALUE).forEach { counter ->
+            nextIdAfterQuarantine(counter, """[{"id":2,"date":1,"text":"x"}""") shouldBe
+                EXHAUSTED_ID_COUNTER
+            nextIdAfterQuarantine(counter, null) shouldBe EXHAUSTED_ID_COUNTER
+        }
+    }
+
     test("a counter a stored reminder has already reached is recomputed past it") {
         // Even and in range, but the store was written by something that let the two
         // drift apart: allocating from it would replace the reminder holding id 4.
@@ -284,6 +320,8 @@ class StoreReadingTest : FunSpec({
             -2 to "[]",
             40 to """[{"id":6,"date":1}]""",
             EXHAUSTED_ID_COUNTER to null,
+            EXHAUSTED_ID_COUNTER + 2 to "[]",
+            Int.MAX_VALUE to null,
             null to """[{"id":${Reminder.MAX_REMINDER_ID},"date":1}]"""
         ).forEach { (counter, raw) ->
             val nextId = nextIdAfterQuarantine(counter, raw)
@@ -368,14 +406,15 @@ class StoreReadingTest : FunSpec({
  * Every counter the store can hold that carries no number the app can use: the same
  * answer for each, and the only counters the reminders themselves have to answer for.
  *
- * An odd counter is not one of them. It is off by one from a number this app did write,
- * so it is rounded up and used rather than thrown away.
+ * There are two of them. An odd counter is not one: it is off by one from a number this
+ * app did write, so it is rounded up and used. Nor is a counter above the mark for
+ * having no id left: however far above it is, it says ids were handed out, so it is
+ * clamped down to that mark rather than thrown away.
  */
 private fun forEachCounterWithNoNumberToUse(check: (Int?) -> Unit) {
     listOf(
         null, // of another type, or nothing at all
-        -2, // no id was ever negative
-        Reminder.MAX_REMINDER_ID + 4 // past even the counter that has run out of ids
+        -2 // no id was ever negative
     ).forEach(check)
 }
 

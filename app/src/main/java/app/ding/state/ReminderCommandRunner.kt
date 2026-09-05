@@ -48,9 +48,11 @@ data class StoreReading(
      */
     val unreadable: UnreadableReason? = null,
     /**
-     * True when the stored id counter could not be used and was recomputed from the
-     * reminders. The recomputed counter is in [stored] and lands on disk with the next
-     * write that commits.
+     * True when the stored id counter was not usable as it stood and the read answered
+     * with another one: moved past the reminders it was behind, rounded up to an even
+     * number, or clamped down to [EXHAUSTED_ID_COUNTER] because it was past the end of
+     * the id space. The counter the read settled on is in [stored] and lands on disk
+     * with the next write that commits.
      */
     val counterRepaired: Boolean = false
 )

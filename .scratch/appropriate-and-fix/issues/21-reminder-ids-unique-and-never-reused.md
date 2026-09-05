@@ -114,11 +114,12 @@ is no Robolectric — so that one line is Android code covered by inspection rat
 by a test, the same way ticket 14's preference write-back is. The scan is a regular
 expression over the raw text rather than a lenient JSON parse; a lenient parse would be
 more precise and is not worth a dependency for a value that is being thrown out of the
-store anyway. Nothing was done about an install that actually exhausts the id space:
-`nextIdAfterQuarantine` can answer `MAX_REMINDER_ID + 2` for a store that held the
-largest allowed id, exactly as `nextIdToUse` already could, and the next Add would fail
-`Reminder`'s own `require`. That takes 500,001 reminders in one install to reach and is
-not this ticket's problem.
+store anyway. Running out of ids was left alone here — `nextIdAfterQuarantine` could
+answer `MAX_REMINDER_ID + 2` for a store that held the largest allowed id, exactly as
+`nextIdToUse` already could, and the next Add would then fail `Reminder`'s own `require`
+— on the judgment that 500,001 reminders in one install is not this ticket's problem.
+The reviews below overturned that: the counter running past the end of the id space is
+an answer the app gives, not an exception it throws.
 
 ## Review findings (2026-09-05)
 
@@ -189,3 +190,66 @@ ReminderCommandRunnerTest > handing out the last id leaves none to give, and the
 
 `docs/reminder-state-machine.md` gained the second refusal reason, the Add row for it,
 and a line saying the guards of a command are read in the order the table lists them.
+
+### Second round
+
+One more finding, accepted and fixed the same way.
+
+3. (high) **A counter past the end of the id space was thrown away, and the count
+   started again from 0.** Finding 2 above made `EXHAUSTED_ID_COUNTER` a usable value
+   but kept the range closed at it, so `usableCounter` still discarded anything above:
+   a stored counter of `EXHAUSTED_ID_COUNTER + 2`, or of `Int.MAX_VALUE`, contributed
+   nothing, and over an empty readable list `counterPast` then answered 0. The next Add
+   took id 0 while the notification, alarm and pending intents of an earlier reminder
+   of this install may still hold it — the same cross-wiring the ticket exists to
+   close, reached through the one door finding 1 left open. Fixed: fail closed. Any
+   non-negative counter at or above `EXHAUSTED_ID_COUNTER` is clamped down to it before
+   the parity rounding, in `usableCounter`, which is the one place the read path and
+   the quarantine rebuild share, so neither can answer lower than the other. Clamping
+   before the rounding also matters on its own: rounding `Int.MAX_VALUE` up first
+   overflows to a negative number. However far past the end a counter has been pushed,
+   it still says ids were handed out, so the honest answer is that there is none left,
+   and Add is refused with `IdSpaceExhausted` rather than handed a reused id. A
+   negative or non-numeric counter keeps its old treatment: it carries no number about
+   how far the count got, and there is no direction to clamp it in that is not made up.
+   This retires the clause in finding 1 above that listed "past the exhausted mark"
+   among the counters that contribute nothing.
+
+The clamp is logged once, in `ReminderStorage.read`, through the existing
+`StoreReading.counterRepaired` flag that every other repair of the counter already
+takes — it is true whenever the read answers with a counter other than the stored one.
+Its wording and its Javadoc now name all three repairs rather than only the recompute.
+
+**Tests.** In `StoreReadingTest`, *a counter above the mark for having none left is
+clamped to it, not thrown away* (through `nextIdToUse`), *... is clamped on the way in
+to a read* (through `readStore`, also asserting the repair is flagged for the log), and
+*... is clamped by a quarantine too* (through `nextIdAfterQuarantine`, with a raw value
+and without one); each runs both `EXHAUSTED_ID_COUNTER + 2` and `Int.MAX_VALUE`, and
+both counters were added to the property check that a quarantine leaves an even counter
+in `0..EXHAUSTED_ID_COUNTER`. In `ReminderCommandRunnerTest`, *a counter above the mark
+for having none left refuses the next add* and *a quarantine does not give back the ids
+a counter above the mark stands for*, both asserting the store is left holding
+`EXHAUSTED_ID_COUNTER` and that no effect ran.
+
+One existing test pinned the old fallback and was rewritten: the counter
+`MAX_REMINDER_ID + 4` was in `forEachCounterWithNoNumberToUse`, the list of counters
+that carry no usable number, which drove *an id counter that cannot be read gives an id
+no stored reminder has* and *... starts again from 0 when there are no reminders*. It is
+now clamped rather than discarded, so it is out of that list, which holds only a counter
+of another type and a negative one.
+
+**Red first.** All five new assertions failed before the fix, and the runner ones failed
+on the reused id itself:
+
+```
+StoreReadingTest > a counter above the mark for having none left is clamped to it, not thrown away
+    org.opentest4j.AssertionFailedError: expected:<1000002> but was:<0>
+StoreReadingTest > a counter above the mark for having none left is clamped by a quarantine too
+    org.opentest4j.AssertionFailedError: expected:<1000002> but was:<4>
+ReminderCommandRunnerTest > a counter above the mark for having none left refuses the next add
+    org.opentest4j.AssertionFailedError: expected:<Refused(reason=IdSpaceExhausted)>
+      but was:<Updated(reminder=Reminder(id=0, ...))>
+```
+
+Left out: nothing new. The clamp changes no Android code beyond the wording of one log
+line, so the parts of this ticket that have no JVM seam are covered exactly as before.

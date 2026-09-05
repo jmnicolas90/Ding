@@ -511,6 +511,36 @@ class ReminderCommandRunnerTest : FunSpec({
         executor.effects shouldBe emptyList()
     }
 
+    test("a counter above the mark for having none left refuses the next add") {
+        // Only the counter is out of range here; the store itself reads fine and is
+        // empty. Reading a counter this app could not have written as no evidence at
+        // all would leave the empty list to answer alone, and the next add would take
+        // id 0 — an id whose notification, alarm and pending intents an older reminder
+        // of this install may still hold.
+        val store = QuarantiningFakeStore("[]", nextId = Int.MAX_VALUE)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        outcome shouldBe TransitionOutcome.Refused(RefusalReason.IdSpaceExhausted)
+        store.read().stored.nextId shouldBe EXHAUSTED_ID_COUNTER
+        executor.effects shouldBe emptyList()
+    }
+
+    test("a quarantine does not give back the ids a counter above the mark stands for") {
+        val store = QuarantiningFakeStore("the damage", nextId = EXHAUSTED_ID_COUNTER + 2)
+        val executor = RecordingExecutor()
+        val runner = ReminderCommandRunner(store, executor) { NOW }
+
+        runner.reconcileAll()
+        val outcome = runner.add(NOW + 60_000, "Call the plumber", naggingRepeatInterval = 0)
+
+        outcome shouldBe TransitionOutcome.Refused(RefusalReason.IdSpaceExhausted)
+        store.read().stored.nextId shouldBe EXHAUSTED_ID_COUNTER
+        executor.effects shouldBe emptyList()
+    }
+
     // Two stored reminders sharing an id cannot both be run on: they share one alarm
     // slot, one notification and one pending-intent request code. Reconcile over a
     // future SCHEDULED one and a DONE one would set the alarm for the first and cancel

@@ -117,10 +117,16 @@ object ReminderStorage {
                 Log.e(TAG, "The stored reminders could not be read: ${reading.unreadable}")
             }
             if (reading.counterRepaired) {
+                // One line for every repair the read can make to the counter, because
+                // they all come to the same thing: the number ids are handed out from
+                // has changed, and it only ever moves up. A counter clamped down to
+                // EXHAUSTED_ID_COUNTER is the one that leaves no id to give at all, and
+                // the next add is refused rather than handed an id already in use.
                 Log.w(
                     TAG,
-                    "The stored id counter could not be used; it is ${reading.stored.nextId} " +
-                        "from now on, which no stored reminder has. The next write keeps it."
+                    "The stored id counter could not be used as it stood; it is " +
+                        "${reading.stored.nextId} from now on, which no stored reminder " +
+                        "has. The next write keeps it."
                 )
             }
             return reading
