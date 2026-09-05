@@ -53,25 +53,39 @@ not a reminder", and `SerializationException` is caught before
 functions rather than two values, since the read itself throws
 `ClassCastException` when shared preferences hold another type; both forms are
 public, and the value form is the one a test calls.
-`KNOWN_STORED_REMINDERS_FORMAT_VERSION` is 1 and is now the single source of
-`Main.REMINDERS_LIST_FORMAT_VERSION`, which stops being a `var`. There is no
-migration to write yet; the `when` on the version says where the first one goes.
-`Reminder.fromJson` is deleted, so there is no second way in.
+`KNOWN_STORED_REMINDERS_FORMAT_VERSION` is 1 and is the only version constant left:
+`Main.REMINDERS_LIST_FORMAT_VERSION` and `Prefs.getStoredRemindersListFormatVersion`
+are both deleted, since a typed read of the version outside the decoding is a
+`ClassCastException` out of `Application.onCreate` (review finding 1). The version is
+written with the reminders, in the same commit, so nothing writes it on a read either.
+There is no migration to write yet; the `when` on the version says where the first one
+goes. `Reminder.fromJson` is deleted, so there is no second way in.
 
-**The quarantine rule.** When the store is unreadable, `ReminderStorage` moves the
-raw value and its format version to `reminders_unreadable`,
+**The quarantine rule.** When the store is unreadable, the raw value and its format
+version are moved to `reminders_unreadable`,
 `reminders_unreadable_format_version` and `reminders_unreadable_at` (the time it
-happened) and empties `reminders`, in one commit, before anything writes to the
-normal keys — so a reminder added afterwards can never land on top of it. Only one
+happened), `reminders` is emptied and the id counter is reset, in one commit, before
+anything writes to the normal keys — so a reminder added afterwards can never land on
+top of it. That commit belongs to the runner, not to a read: reading reports an
+unreadable store and changes nothing, and the set-aside is the first step of the next
+command, under the runner's lock (review finding 3). At process start that command is
+always Reconcile. It goes through `writeWithRollback` like any other write, so a
+set-aside whose commit fails leaves the store exactly as unreadable as it was and the
+command it was the first step of returns `PersistenceFailed`; the next command tries
+the set-aside again (review finding 4). Only one
 value is kept: `quarantineToKeep` keeps the one already there, because a second
 failure is usually a consequence of the first (the empty store the app then ran
-on), and a dropped second value is logged. The runner sees an empty store and
+on), and a dropped second value is logged. The runner then sees an empty store and
 carries on; `reconcileAll` returns `Reconciled` and does not throw. A Deliver or
 Nag alarm arriving meanwhile finds no reminder and takes ticket 10's
 missing-reminder cleanup path — `Unchanged` plus both cancels — instead of
 crashing the receiver. Every read the app makes goes through the store now,
-`ReminderStorage.getReminders` included, and the id counter and the rollback read
-in `write` are read defensively for the same reason.
+`ReminderStorage.getReminders` included. Every preference the store reads is read
+through a function that is allowed to throw `ClassCastException`, and `readStore` in
+`app.ding.state` decides what each failure means, the id counter included: a counter
+that cannot allocate an id no stored reminder has is recomputed from the reminders
+rather than substituted with 0 (review finding 5). The value set aside is read the
+same way (review finding 2).
 
 **What the user sees.** When a value has been set aside, the reminders list
 activity shows a dialog, last of the startup dialogs so it is the one on top:
@@ -82,7 +96,10 @@ data**, an `ACTION_SEND` `text/plain` chooser carrying the raw JSON so the user 
 keep it or attach it to an issue, and **Discard**, which deletes it only after a
 second confirmation. Seven new strings, all resources. No new screen.
 
-**Tests**, all plain JVM. `app/src/test/java/app/ding/state/StoredReminderDecodingTest.kt`
+**Tests**, all plain JVM. `app/src/test/java/app/ding/state/StoreReadingTest.kt`
+(16 tests) covers the adapter's own reading: every preference of the wrong type, the
+id counter's four corrupt forms, and the value set aside with each of its three keys
+unreadable. `app/src/test/java/app/ding/state/StoredReminderDecodingTest.kt`
 (19 tests): a valid store, an empty list, nothing stored, a value that is not JSON,
 a truncated value, an empty string, JSON that is not a list of reminders, a missing
 field, a field of the wrong JSON type, an odd id, a negative id, an id past
@@ -121,11 +138,13 @@ FAILED: a format version from a newer build is not decoded at all
 The version was read by nothing at all, which is the second half of the finding:
 the key existed with no migration and no recovery attached to it.
 
-**No change to the model document.** `docs/reminder-state-machine.md` already says
+**One change to the model document.** `docs/reminder-state-machine.md` already says
 what test 13 asks for — a store that fails to decode does not throw out of
 Reconcile and preserves the raw value — and the implementation matches it. Nothing
-in the transition table or the invariants contradicted the recovery, so there was
-nothing to correct. `ReminderTransition.kt` and the runner are still free of
+in the transition table or the invariants contradicted the recovery. The runner's
+numbered steps gained the set-aside as step 2, since the recovery is now a step of
+the command rather than something a read does on its own.
+`ReminderTransition.kt`, the runner and the decoding are still free of
 Android imports.
 
 **Consciously left out.** No migration: version 1 is the only version there has ever
@@ -141,3 +160,63 @@ The reason a value could not be read is logged but not stored, so the shared tex
 the raw JSON alone. `Reconciled(emptyList())` is what Reconcile returns over an
 unreadable store rather than a list of `Unchanged` outcomes: there are no reminders
 to have an outcome for, and the alarm path's `Unchanged` is asserted in its own test.
+
+## Review findings (2026-09-05)
+
+Five findings from the review of the work above, all accepted and all fixed in the
+same worktree. The theme: every read of a preference is defensive, every mutation of
+reminder data goes through the runner's lock and the rollback, and no corruption is
+papered over with a default that loses data.
+
+1. (high) **A typed read of the format version in `Main.onCreate`** — fixed. The read
+   and `Prefs.getStoredRemindersListFormatVersion` are both deleted: the decoding owns
+   the version, and a wrong-typed version key is now an unreadable store instead of a
+   `ClassCastException` out of `Application.onCreate`. The version is written with the
+   reminders in the same commit, so nothing has to write it on a read to keep the store
+   self-describing. Test: *a format version of the wrong type is an unreadable store,
+   not an exception*.
+2. (high) **`getQuarantinedReminders` read its three keys unchecked** — fixed. The
+   reading is `readQuarantine` in `app.ding.state`, taking one function per key so it is
+   decided on a plain JVM: each is caught, the raw text is what matters, and a version or
+   a time that cannot be read is unknown rather than fatal. `quarantinedAt` is a `Long?`
+   for that reason, and a value set aside is recognised by either of its keys, so one
+   whose own text cannot be read is still offered to the user. Tests: *a raw value of the
+   wrong type leaves the rest of the value set aside readable*, *a format version of the
+   wrong type is unknown rather than a crash*, *a time of the wrong type is unknown
+   rather than a crash*, *a value set aside with no metadata at all is still offered to
+   the user*, *nothing set aside is nothing to offer the user*.
+3. (high) **The set-aside was a write done by a read**, so a public `getReminders` could
+   empty `reminders` on top of an Add the runner had just committed — fixed. `read`
+   returns the empty view and the reason it could not read anything, and writes nothing;
+   `ReminderStore.setAsideUnreadable` is the write, and the runner alone calls it, under
+   its lock, as the first step of every command. There is one lock, the runner's: the
+   adapter has none of its own and now has nothing to take one for. Test: *a read reports a
+   store it cannot read, and the add after it sets that value aside first* — the set-aside
+   and the write land in that order, and the added reminder survives.
+4. (medium) **A failed quarantine commit was only logged** — fixed. The set-aside
+   snapshots all six keys it touches and goes through `writeWithRollback`, and a commit
+   that does not go through returns `PersistenceFailed` from the command it was the first
+   step of. Reconcile then runs no effects, and the next command retries the set-aside
+   before doing anything else. Test: *a set-aside that does not commit is a typed failure,
+   and the next command tries it again*.
+5. (high) **A wrong-typed id counter was substituted with 0** — fixed. It is not
+   substituted at all: `nextIdToUse` accepts a counter only when it is even, within range
+   and past every stored id, and otherwise recomputes it as the largest stored id plus two
+   (0 for an empty list), logs the repair and lets the next successful write persist it.
+   An unreadable store takes its counter with it, reset alongside the reminders. Tests: *an
+   id counter that cannot be read gives an id no stored reminder has* (wrong-typed, odd,
+   out of range and larger than the maximum), *an id counter of the wrong type is
+   recomputed from the stored reminders*, *a counter a stored reminder has already reached
+   is recomputed past it*, *a counter that can still allocate is left alone*, *an id
+   counter that cannot be read starts again from 0 when there are no reminders*, and
+   through the runner *an id counter that cannot be read does not let the next add replace
+   a stored reminder*.
+
+**Red first here too.** *a read of a store that cannot be read sets nothing aside on its
+own* failed on exactly finding 3 before any of this was written:
+
+```
+FAILED: a read of a store that cannot be read sets nothing aside on its own
+    org.opentest4j.AssertionFailedError: Expected null but actual was
+    QuarantinedReminders(raw=this is not JSON, formatVersion=1, quarantinedAt=1788609600001)
+```

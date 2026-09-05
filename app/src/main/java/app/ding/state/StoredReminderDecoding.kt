@@ -22,13 +22,17 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
 /**
- * The one place stored reminders are turned back into reminders.
+ * The one place stored reminders are turned back into reminders, and the one place
+ * that decides what a stored value means when it is not what the app wrote.
  *
  * The store is read on every process start, before any component including the
  * alarm receiver, so an exception thrown here is not an error report: it is an app
  * that cannot be launched and cannot be repaired from the inside. Every failure
  * this decoding can meet is therefore an answer — [DecodeResult.Unreadable] — and
- * never something the caller has to catch.
+ * never something the caller has to catch. Reading itself is one of those failures:
+ * shared preferences throw [ClassCastException] when the stored value is of another
+ * type than the read asks for, so every value is read through a function that is
+ * allowed to throw and is caught here.
  *
  * Like the transition function and the runner, this file has no Android imports, so
  * every stored value the app can meet is decided in a plain JVM test.
@@ -80,10 +84,120 @@ enum class UnreadableReason {
  * does afterwards can write over it.
  */
 data class QuarantinedReminders(
+    /** The value as it was read, or null when it could not be read as text at all. */
     val raw: String?,
+    /** The version the store recorded for it, or null when that is not known. */
     val formatVersion: Int?,
-    val quarantinedAt: Long
+    /** When it was set aside, in epoch milliseconds, or null when that is not known. */
+    val quarantinedAt: Long?
 )
+
+/**
+ * The value that was set aside, read defensively: the raw text is the part that
+ * matters, and metadata that cannot be read is unknown rather than a crash.
+ *
+ * This runs while a value is being set aside and again every time the reminders list
+ * activity opens, so a malformed value here would take down the startup path and the
+ * one screen that offers the user their data back.
+ *
+ * @param isSetAside whether anything is set aside at all. It is asked separately
+ *   because a value whose own text cannot be read still has to be reported.
+ * @return null when nothing is set aside.
+ */
+fun readQuarantine(
+    isSetAside: () -> Boolean,
+    readRaw: () -> String?,
+    readFormatVersion: () -> Int?,
+    readQuarantinedAt: () -> Long?
+): QuarantinedReminders? {
+    if (!isSetAside()) return null
+    return QuarantinedReminders(
+        raw = valueOrNullOnWrongType(readRaw),
+        formatVersion = valueOrNullOnWrongType(readFormatVersion),
+        quarantinedAt = valueOrNullOnWrongType(readQuarantinedAt)
+    )
+}
+
+/**
+ * One read of the store: the reminders to run on, the counter to allocate the next
+ * id from, and whether the stored value could be read at all.
+ *
+ * It never writes. A value it cannot read is reported, not repaired, because the
+ * repair is a write and every write goes through the runner's lock — see
+ * [ReminderStore.setAsideUnreadable].
+ *
+ * @param readNextId the stored id counter, or null when nothing recorded one. It may
+ *   throw [ClassCastException] like the other two.
+ */
+fun readStore(
+    readFormatVersion: () -> Int?,
+    readRawJson: () -> String?,
+    readNextId: () -> Int?
+): StoreReading {
+    val counter = counterIn(readNextId)
+    val reminders = when (val decoded = decodeStoredReminders(readFormatVersion, readRawJson)) {
+        is DecodeResult.Readable -> decoded.reminders
+        DecodeResult.Empty -> emptyList()
+        is DecodeResult.Unreadable ->
+            // The counter belongs to reminders nobody can read, so it goes with them:
+            // the store the app runs on until the value is set aside is empty, and an
+            // empty store allocates from 0.
+            return StoreReading(
+                stored = StoredReminders(emptyList(), nextId = 0),
+                unreadable = decoded.reason
+            )
+    }
+    val nextId = nextIdToUse(counter.value, reminders)
+    return StoreReading(
+        stored = StoredReminders(reminders, nextId),
+        counterRepaired = !counter.readable || (counter.value != null && nextId != counter.value)
+    )
+}
+
+/**
+ * The counter the next reminder id is allocated from.
+ *
+ * A stored counter is used as it is when it can still do its one job: give an id that
+ * is even, within range, and held by no stored reminder. Anything else — a value of
+ * another type, an odd number, a number out of range, or one an existing reminder has
+ * already passed — is recomputed from the reminders themselves, as the largest stored
+ * id plus two, or 0 when there are none.
+ *
+ * Substituting 0 for a counter that cannot be read is the one thing this must not do:
+ * the next Add would take id 0, and since the id is the identity of the reminder, of
+ * its notification and of its alarms, it would replace whatever already holds it.
+ * Recomputing keeps the only promise the id has to make.
+ *
+ * @param storedNextId null when the store holds no number at all.
+ */
+fun nextIdToUse(storedNextId: Int?, reminders: List<Reminder>): Int {
+    val usable = storedNextId != null &&
+        storedNextId % 2 == 0 &&
+        storedNextId in 0..Reminder.MAX_REMINDER_ID &&
+        reminders.none { it.id >= storedNextId }
+    // Stored ids are even, so the largest one plus two is even as well.
+    return if (usable) storedNextId else reminders.maxOfOrNull { it.id + 2 } ?: 0
+}
+
+/**
+ * What the store holds for the id counter. A counter that is not there at all is a
+ * first run, not damage; one that is there and of another type is damage worth
+ * reporting, and the two look the same once the value is null.
+ */
+private class StoredCounter(val value: Int?, val readable: Boolean)
+
+private fun counterIn(readNextId: () -> Int?): StoredCounter = try {
+    StoredCounter(readNextId(), readable = true)
+} catch (e: ClassCastException) {
+    StoredCounter(value = null, readable = false)
+}
+
+/** What [read] gave, or null when the stored value is of another type than it asked for. */
+private fun <T> valueOrNullOnWrongType(read: () -> T?): T? = try {
+    read()
+} catch (e: ClassCastException) {
+    null
+}
 
 /**
  * Which value the quarantine holds once [candidate] turns up: whatever is already
@@ -113,7 +227,10 @@ fun decodeStoredReminders(
         readFormatVersion()
     } catch (e: ClassCastException) {
         // The raw value may still be readable, and it is the half worth keeping.
-        return DecodeResult.Unreadable(UnreadableReason.WRONG_TYPE, rawOrNull(readRawJson))
+        return DecodeResult.Unreadable(
+            UnreadableReason.WRONG_TYPE,
+            valueOrNullOnWrongType(readRawJson)
+        )
     }
     val rawJson = try {
         readRawJson()
@@ -174,10 +291,4 @@ private fun decodeVersion1(rawJson: String): DecodeResult {
         // because it is itself an IllegalArgumentException.
         DecodeResult.Unreadable(UnreadableReason.INVALID_REMINDER, rawJson)
     }
-}
-
-private fun rawOrNull(readRawJson: () -> String?): String? = try {
-    readRawJson()
-} catch (e: ClassCastException) {
-    null
 }

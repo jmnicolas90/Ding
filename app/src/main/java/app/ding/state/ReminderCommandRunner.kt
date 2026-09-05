@@ -32,6 +32,30 @@ import java.util.concurrent.locks.ReentrantLock
 data class StoredReminders(val reminders: List<Reminder>, val nextId: Int)
 
 /**
+ * What one read of the store found.
+ *
+ * A read never repairs anything, so it answers with the reminders the app can run on
+ * and with what it noticed about the stored value. The repairs are writes, and every
+ * write happens inside the runner under its lock.
+ */
+data class StoreReading(
+    /** The reminders to run on: empty when the stored value could not be read. */
+    val stored: StoredReminders,
+    /**
+     * Why the stored value could not be read, or null when it could. A value that
+     * could not be read has not been set aside yet: the runner does that before it
+     * does anything else, and until then the app runs on the empty view above.
+     */
+    val unreadable: UnreadableReason? = null,
+    /**
+     * True when the stored id counter could not be used and was recomputed from the
+     * reminders. The recomputed counter is in [stored] and lands on disk with the next
+     * write that commits.
+     */
+    val counterRepaired: Boolean = false
+)
+
+/**
  * What running one command did: one of the transition function's outcomes, or
  * [PersistenceFailed].
  *
@@ -58,8 +82,24 @@ data object PersistenceFailed : CommandResult, ReconcileResult
 
 /** Where reminders are kept. */
 interface ReminderStore {
-    /** Read the whole store. */
-    fun read(): StoredReminders
+    /**
+     * Read the whole store. Never writes: a value it cannot read is reported through
+     * [StoreReading.unreadable], not repaired, because the repair is a write and a
+     * write from a read can land on top of a command the runner is in the middle of.
+     */
+    fun read(): StoreReading
+
+    /**
+     * Move the value [read] reported unreadable to keys of its own and empty the normal
+     * ones, in one commit, so that nothing written afterwards can land on top of it.
+     *
+     * Called by the runner alone, under its lock, before anything else it does.
+     *
+     * @return the store as it stands afterwards — empty — or null when the commit did
+     *   not go through, in which case nothing was written and the value is still
+     *   unreadable, for the next command to try again.
+     */
+    fun setAsideUnreadable(): StoredReminders?
 
     /**
      * Write the whole store, and report whether the write actually committed.
@@ -111,7 +151,7 @@ class ReminderCommandRunner(
         val effects: List<ReminderEffect>
         var written = false
         try {
-            val stored = store.read()
+            val stored = readable() ?: return PersistenceFailed
             val now = clock()
             val results = stored.reminders.map { reminder ->
                 transition(reminder, ReminderCommand.Reconcile(reminder.id), now)
@@ -148,7 +188,7 @@ class ReminderCommandRunner(
         val result: TransitionResult
         var written = false
         try {
-            val stored = store.read()
+            val stored = readable() ?: return PersistenceFailed
             val command = makeCommand(stored)
             val existing = stored.reminders.find { it.id == command.reminderId }
             result = transition(existing, command, clock())
@@ -171,6 +211,22 @@ class ReminderCommandRunner(
         }
         result.effects.forEach(effectExecutor::execute)
         return result.outcome
+    }
+
+    /**
+     * The store to work from, with an unreadable value set aside first.
+     *
+     * Setting aside is the first thing every command does, and the first command of a
+     * process is always the startup Reconcile, so a value that could not be read is
+     * kept before anything else writes to the normal keys. It is a write like any
+     * other: when it does not commit, the command it was the first step of does not
+     * happen at all, and the next one tries the set-aside again.
+     *
+     * @return null when the set-aside did not commit, which is a persistence failure.
+     */
+    private fun readable(): StoredReminders? {
+        val reading = store.read()
+        return if (reading.unreadable != null) store.setAsideUnreadable() else reading.stored
     }
 
     /**

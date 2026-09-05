@@ -113,15 +113,6 @@ public class Prefs {
         getStatePrefs(context).edit().putBoolean(PREF_STATE_REMINDERS_UPDATED, b).commit();
     }
 
-    @SuppressLint("ApplySharedPref")
-    public static int getStoredRemindersListFormatVersion(Context context) {
-        SharedPreferences prefs = getStatePrefs(context);
-        if (!prefs.contains(PREF_STATE_REMINDERS_FORMAT_VERSION)) {
-            prefs.edit().putInt(PREF_STATE_REMINDERS_FORMAT_VERSION, Main.REMINDERS_LIST_FORMAT_VERSION).commit();
-        }
-        return prefs.getInt(PREF_STATE_REMINDERS_FORMAT_VERSION, Main.REMINDERS_LIST_FORMAT_VERSION);
-    }
-
     /**
      * Checks whether the welcome message has been shown and if not, saves the version at which it now is shown.
      *

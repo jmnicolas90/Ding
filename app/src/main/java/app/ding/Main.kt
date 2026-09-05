@@ -20,7 +20,6 @@ import android.app.Application
 import android.content.Context
 import androidx.preference.PreferenceManager
 import app.ding.ReminderManager.createNotificationChannel
-import app.ding.state.KNOWN_STORED_REMINDERS_FORMAT_VERSION
 import app.ding.ui.util.UIUtils
 
 class Main : Application() {
@@ -29,7 +28,11 @@ class Main : Application() {
         super.onCreate()
 
         PreferenceManager.setDefaultValues(this, R.xml.preferences, true)
-        Prefs.getStoredRemindersListFormatVersion(this) // Initialize if not set
+        // The stored format version is not read here. It is read by the decoding, which
+        // is the one thing that knows what to do with a version it does not understand
+        // or with a value of another type; a typed read here would throw out of
+        // onCreate, which is the startup crash loop ticket 13 is about. Nothing writes
+        // it on a read either: it is written with the reminders, in the same commit.
         createNotificationChannel(this)
 
         // Reconcile on app startup: schedule future reminders, deliver past-due ones and re-show
@@ -42,14 +45,6 @@ class Main : Application() {
     }
 
     companion object {
-        /**
-         * The current (newest) version of storing reminders in [Prefs]. It is the
-         * version the decoding in `app.ding.state` knows how to read; there is one
-         * number, not two that can drift apart.
-         */
-        @JvmField
-        val REMINDERS_LIST_FORMAT_VERSION = KNOWN_STORED_REMINDERS_FORMAT_VERSION
-
         @JvmStatic
         fun showWelcomeMessage(context: Context) {
             UIUtils.showMessageDialog(R.string.dialog_welcome_title, R.string.welcome_message, context)
