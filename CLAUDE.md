@@ -45,11 +45,21 @@ upstream's release history, and the historical record under `.scratch/`.
   link, and no address was substituted in its place. The app has no crash
   reporting at all, and GitHub issues on
   `https://github.com/jmnicolas90/Ding` are the only contact channel. It is
-  enforced, not just documented: gate G1 below greps every tracked file for an
-  address and fails on the file and line, allowing only `LICENSE.md`,
+  enforced, not just documented (ticket 20): gate G1 below greps every tracked
+  file for an address, checks the author and committer identity the next commit
+  would carry, and walks every commit this fork authored — author, committer,
+  the whole message including trailers, and the commit's own tree, so an address
+  that was committed and redacted later is still caught. It fails on the commit,
+  file and line and never prints the address. Allowed are `LICENSE.md`,
   `LICENSES/`, `CONTRIBUTORS.md`, the licences page generated from `LICENSE.md`,
   and no-reply addresses. Attribution the GPL requires stays; anything else is
-  a leak.
+  a leak. Upstream's commits are excluded by commit range (`^d34bf2f
+  ^62ef3e8`), never by naming an address, and the historical trees also pass
+  over an address upstream's own trees already hold — the fork's early commits
+  carry upstream's files unchanged and a clone gets that address from upstream's
+  commits anyway. Full history is required: a shallow clone or a missing
+  exclusion commit is a failure, which is why CI checks out with
+  `fetch-depth: 0`.
 - **Never commit a red gate.**
 
 ## The gate

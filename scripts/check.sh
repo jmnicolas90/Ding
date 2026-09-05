@@ -78,10 +78,13 @@ preflight() {
 preflight
 
 # G1 is the other gate that is not a Gradle task. It runs here, before anything
-# that starts a JVM, because it costs milliseconds and because an address that
-# reaches a public push cannot be taken back. The check itself lives in its own
-# script, which the CI workflow runs too, so the pattern and the allowlist have
-# one home instead of two that drift.
+# that starts a JVM, because it costs well under a second and because an address
+# that reaches a public push cannot be taken back. It covers the tracked files,
+# the identity the next commit would carry, and every commit this fork authored
+# — metadata, message and tree — so it needs full history and fails on a shallow
+# clone. The check itself lives in its own script, which the CI workflow runs
+# too, so the pattern, the allowlist and the commit range have one home instead
+# of two that drift.
 gate G1 "email guard" "$ROOT/scripts/check-no-personal-email.sh"
 
 # Both variants: the ticket's own argument for a separate release APK stage —
